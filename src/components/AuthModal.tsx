@@ -197,7 +197,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 if (email.trim()) {
                   handleQuickSignIn(email);
                 } else {
-                  handleQuickSignIn("hirendiks@gmail.com", "Hirendiks");
+                  const input = document.getElementById("googleEmailInput");
+                  if (input) {
+                    input.focus();
+                    setErrorMessage("Please enter your Gmail / Google address below to sign in");
+                  }
                 }
               }}
               className="w-full py-3.5 px-4 rounded-2xl bg-white hover:bg-slate-100 text-slate-900 font-bold text-sm flex items-center justify-center gap-3 transition-all duration-200 shadow-xl hover:shadow-2xl hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
@@ -248,12 +252,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <div className="relative">
               <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
+                id="googleEmailInput"
                 type="email"
                 required
                 disabled={isLoading}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="your.name@gmail.com"
+                placeholder="your.real.email@gmail.com"
                 className="w-full pl-10 pr-3 py-2.5 rounded-xl text-sm glass-input text-white placeholder-slate-500 focus:ring-1 focus:ring-cyan-400"
               />
             </div>
@@ -300,25 +305,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </button>
         </form>
 
-        {/* Quick 1-Click Accounts */}
+        {/* Quick Demo Accounts */}
         <div className="mt-5 pt-4 border-t border-white/10 text-center">
-          <p className="text-[11px] text-slate-400 mb-2">Or 1-tap to sign in with:</p>
+          <p className="text-[11px] text-slate-400 mb-2">Or test instantly with sample users:</p>
           <div className="flex flex-wrap items-center justify-center gap-2">
             <button
               type="button"
               disabled={isLoading}
-              onClick={() => handleQuickSignIn("hirendiks@gmail.com", "Hirendiks")}
-              className="px-3 py-1.5 rounded-xl text-xs glass-button font-medium text-cyan-300 hover:text-white border border-cyan-500/30 flex items-center gap-1.5"
+              onClick={() => handleQuickSignIn("alex.dev@gmail.com", "Alex Chen")}
+              className="px-3 py-1.5 rounded-xl text-xs glass-button text-cyan-300 hover:text-white border border-cyan-500/30"
             >
-              <span>hirendiks@gmail.com</span>
+              alex.dev@gmail.com (Demo)
             </button>
             <button
               type="button"
               disabled={isLoading}
-              onClick={() => handleQuickSignIn("alex.dev@gmail.com", "Alex Chen")}
+              onClick={() => handleQuickSignIn("sarah.smith@gmail.com", "Sarah Smith")}
               className="px-2.5 py-1.5 rounded-xl text-xs glass-button text-slate-300 hover:text-white"
             >
-              alex.dev@gmail.com
+              sarah.smith@gmail.com (Demo)
             </button>
           </div>
         </div>
