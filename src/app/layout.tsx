@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import "./globals.css";
 import { AuroraBackground } from "@/components/AuroraBackground";
 
@@ -27,6 +28,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="bg-[#060913] text-slate-100 min-h-screen antialiased selection:bg-purple-500 selection:text-white">
+        <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
         <AuroraBackground />
         <div className="relative z-10 flex flex-col min-h-screen">
           {children}

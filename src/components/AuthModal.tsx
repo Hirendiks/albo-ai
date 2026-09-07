@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { UserProfile } from "@/types/auth";
-import { X, Sparkles, Cloud, ShieldCheck, ArrowRight, Loader2, Mail } from "lucide-react";
+import { X, Sparkles, Cloud, ShieldCheck, ArrowRight, Loader2, Mail, ExternalLink } from "lucide-react";
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -19,6 +19,64 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [name, setName] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+
+  const handleGoogleCredentialResponse = async (response: any) => {
+    if (!response?.credential) return;
+    setIsLoading(true);
+    setErrorMessage("");
+
+    try {
+      const res = await fetch("/api/auth/google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential: response.credential }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Failed to sign in with Google");
+      }
+
+      onUserSignedIn(data.user);
+      onClose();
+    } catch (err: any) {
+      console.error("Google sign in error:", err);
+      setErrorMessage(err.message || "Failed to sign in with Google credential");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (googleClientId && typeof window !== "undefined" && (window as any).google?.accounts?.id) {
+      try {
+        (window as any).google.accounts.id.initialize({
+          client_id: googleClientId,
+          callback: handleGoogleCredentialResponse,
+        });
+
+        if (googleBtnRef.current) {
+          (window as any).google.accounts.id.renderButton(googleBtnRef.current, {
+            theme: "filled_blue",
+            size: "large",
+            shape: "pill",
+            text: "continue_with",
+            width: 280,
+          });
+        }
+
+        // Also prompt One-Tap account popup
+        (window as any).google.accounts.id.prompt();
+      } catch (err) {
+        console.warn("Failed to initialize Google Sign In:", err);
+      }
+    }
+  }, [isOpen, googleClientId]);
 
   if (!isOpen) return null;
 
@@ -127,13 +185,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           </div>
         </div>
 
+        {/* Official Google 1-Click Account Chooser Button */}
+        {googleClientId ? (
+          <div className="mt-5 text-center space-y-3">
+            <div ref={googleBtnRef} className="flex justify-center min-h-[44px]" />
+            <div className="flex items-center gap-3">
+              <div className="flex-1 h-px bg-white/10" />
+              <span className="text-[11px] text-slate-400 font-medium uppercase tracking-wider">or enter email</span>
+              <div className="flex-1 h-px bg-white/10" />
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 text-xs text-cyan-200 text-left space-y-1">
+            <div className="flex items-center gap-1.5 font-semibold text-white">
+              <Sparkles className="w-3.5 h-3.5 text-cyan-300 shrink-0" />
+              <span>Direct 1-Click Google Account Chooser</span>
+            </div>
+            <p className="text-[11px] leading-relaxed text-slate-300">
+              To show the direct Google account popup with your active accounts, add your free <code className="text-cyan-300 bg-white/10 px-1 py-0.5 rounded">NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> in Vercel settings. Or enter your Gmail below to sign in instantly!
+            </p>
+          </div>
+        )}
+
         {/* Direct Email / Google Sign In Input */}
         <form
           onSubmit={(e) => {
             e.preventDefault();
             handleQuickSignIn(email);
           }}
-          className="mt-5 space-y-3.5"
+          className="mt-4 space-y-3.5"
         >
           <div>
             <label className="block text-xs font-semibold text-slate-300 mb-1">
