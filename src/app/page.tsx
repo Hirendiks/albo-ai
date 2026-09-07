@@ -245,7 +245,7 @@ export default function HomePage() {
   // Export JSON backup
   const handleExportData = () => {
     const backup = {
-      app: "Albo AI",
+      app: "AI Bookmark",
       exportDate: new Date().toISOString(),
       categories,
       links,
@@ -364,7 +364,7 @@ export default function HomePage() {
                 Share a link. Let AI synthesize and store it.
               </h1>
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                Paste any article, repository, documentation, or video. Albo instantly crawls the page, extracts key takeaways, writes a crisp TL;DR, and files it into your categories.
+                Paste any article, repository, documentation, or video. AI Bookmark instantly crawls the page, extracts key takeaways, writes a crisp TL;DR, and files it into your categories.
               </p>
             </div>
 

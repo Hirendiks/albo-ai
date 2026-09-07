@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Search, Plus, Sparkles, Settings, Share2, Compass } from "lucide-react";
+import { Search, Plus, Sparkles, Settings, Bookmark, Compass, Share2 } from "lucide-react";
 
 import { UserProfile } from "@/types/auth";
 import { UserProfileMenu } from "./UserProfileMenu";
@@ -44,19 +44,17 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center gap-3 select-none">
           <div className="relative group">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-500 to-cyan-400 p-[1.5px] shadow-lg shadow-purple-500/20 group-hover:shadow-purple-500/40 transition-all">
-              <div className="w-full h-full rounded-[14px] bg-slate-950 flex items-center justify-center">
-                <Sparkles className="w-5 h-5 text-cyan-300 animate-pulse" />
+              <div className="w-full h-full rounded-[14px] bg-slate-950 flex items-center justify-center relative">
+                <Bookmark className="w-5 h-5 text-purple-400 fill-purple-400/20" />
+                <Sparkles className="w-3 h-3 text-cyan-300 absolute -top-0.5 -right-0.5 animate-pulse" />
               </div>
             </div>
             <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-emerald-400 border-2 border-slate-950" />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent">
-                Albo
-              </span>
-              <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                AI
+              <span className="font-extrabold text-xl tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-200 bg-clip-text text-transparent">
+                AI Bookmark
               </span>
             </div>
             <p className="text-[11px] text-slate-400 hidden sm:block">
