@@ -109,10 +109,10 @@ export const UserProfileMenu: React.FC<UserProfileMenuProps> = ({
 
       {/* Dropdown Panel */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-3xl bg-slate-950/98 backdrop-blur-3xl p-5 z-50 shadow-2xl shadow-black border border-white/20 ring-1 ring-white/10 animate-in fade-in zoom-in-95 duration-150 space-y-4">
+        <div className="frosted-glass-dropdown absolute right-0 mt-3 w-80 max-w-[calc(100vw-2rem)] rounded-3xl p-5 z-50 animate-in fade-in zoom-in-95 duration-150 space-y-4">
           {/* User Details Banner */}
           <div className="flex items-center gap-3 pb-3 border-b border-white/10">
-            <div className="w-10 h-10 rounded-xl overflow-hidden bg-gradient-to-tr from-purple-500 to-cyan-400 p-[1.5px] shrink-0">
+            <div className="w-10 h-10 rounded-xl overflow-hidden bg-gradient-to-tr from-purple-500 to-cyan-400 p-[1.5px] shrink-0 shadow-md">
               <div className="w-full h-full rounded-[10px] bg-slate-950 flex items-center justify-center overflow-hidden">
                 {user.image ? (
                   <img src={user.image} alt={user.name} className="w-full h-full object-cover" />
@@ -130,17 +130,17 @@ export const UserProfileMenu: React.FC<UserProfileMenuProps> = ({
           </div>
 
           {/* Cloud Sync Status Card */}
-          <div className="p-3 rounded-xl bg-emerald-950/30 border border-emerald-500/20 space-y-1.5">
+          <div className="p-3.5 rounded-2xl bg-emerald-950/40 backdrop-blur-md border border-emerald-500/30 space-y-2 shadow-inner">
             <div className="flex items-center justify-between text-xs">
               <span className="flex items-center gap-1.5 text-emerald-300 font-semibold">
-                <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                <Cloud className="w-4 h-4 text-emerald-400" />
                 <span>Google Cloud Sync</span>
               </span>
-              <span className="text-[10px] text-emerald-400 font-mono">Active</span>
+              <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-[10px] text-emerald-300 font-mono font-medium border border-emerald-500/30">Active</span>
             </div>
-            <p className="text-[11px] text-slate-300 flex items-center justify-between">
+            <p className="text-[11px] text-slate-300 flex items-center justify-between pt-0.5">
               <span>Last updated:</span>
-              <span className="font-mono text-emerald-200">
+              <span className="font-mono text-emerald-300 font-medium">
                 {isSyncing ? "Syncing..." : formatLastSync(lastSyncedAt)}
               </span>
             </p>
@@ -148,24 +148,24 @@ export const UserProfileMenu: React.FC<UserProfileMenuProps> = ({
 
           {/* Library Stats */}
           <div className="grid grid-cols-2 gap-2 text-center text-xs">
-            <div className="p-2 rounded-xl bg-white/5 border border-white/5">
-              <p className="font-bold text-white">{totalLinksCount}</p>
-              <p className="text-[10px] text-slate-400">Synced Links</p>
+            <div className="p-2.5 rounded-2xl bg-slate-900/70 backdrop-blur-md border border-white/10 shadow-inner">
+              <p className="text-base font-bold text-white font-mono">{totalLinksCount}</p>
+              <p className="text-[10px] text-slate-400 font-medium">Synced Links</p>
             </div>
-            <div className="p-2 rounded-xl bg-white/5 border border-white/5">
-              <p className="font-bold text-purple-300">{totalCategoriesCount}</p>
-              <p className="text-[10px] text-slate-400">Categories</p>
+            <div className="p-2.5 rounded-2xl bg-slate-900/70 backdrop-blur-md border border-white/10 shadow-inner">
+              <p className="text-base font-bold text-purple-300 font-mono">{totalCategoriesCount}</p>
+              <p className="text-[10px] text-slate-400 font-medium">Categories</p>
             </div>
           </div>
 
           {/* Action Buttons */}
-          <div className="space-y-1.5 pt-1">
+          <div className="space-y-2 pt-1">
             <button
               onClick={() => {
                 onSyncNow();
               }}
               disabled={isSyncing}
-              className="w-full py-2 px-3 rounded-xl text-xs font-semibold glass-button text-cyan-300 hover:text-white flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+              className="w-full py-2.5 px-3 rounded-2xl text-xs font-semibold bg-slate-900/80 hover:bg-slate-800 text-cyan-300 hover:text-white border border-white/15 hover:border-cyan-500/40 flex items-center justify-center gap-2 transition-all shadow-sm disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin" : ""}`} />
               <span>{isSyncing ? "Syncing with Cloud..." : "Sync Library Now"}</span>
@@ -176,7 +176,7 @@ export const UserProfileMenu: React.FC<UserProfileMenuProps> = ({
                 setIsOpen(false);
                 onSignOut();
               }}
-              className="w-full py-2 px-3 rounded-xl text-xs font-semibold glass-button text-rose-400 hover:bg-rose-500/15 hover:text-rose-300 flex items-center justify-center gap-2 transition-all"
+              className="w-full py-2.5 px-3 rounded-2xl text-xs font-semibold bg-rose-950/30 hover:bg-rose-900/50 text-rose-300 hover:text-rose-200 border border-rose-500/30 flex items-center justify-center gap-2 transition-all shadow-sm"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>Sign Out</span>

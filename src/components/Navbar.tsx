@@ -38,7 +38,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   hasApiKey,
 }) => {
   return (
-    <header className="sticky top-0 z-30 w-full backdrop-blur-xl bg-slate-950/60 border-b border-white/10 transition-all">
+    <header className="sticky top-0 z-30 w-full border-b border-white/10 transition-all relative">
+      {/* Header Frosted Background Layer */}
+      <div className="absolute inset-0 backdrop-blur-xl bg-slate-950/70 pointer-events-none -z-10" />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
         {/* Brand Logo */}
         <div className="flex items-center gap-3 select-none">
