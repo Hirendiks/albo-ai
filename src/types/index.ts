@@ -73,6 +73,8 @@ export interface ScrapedData {
   title: string;
   description: string;
   image?: string;
+  screenshot?: string;
+  screenshotImage?: string;
   favicon?: string;
   siteName?: string;
   author?: string;

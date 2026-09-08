@@ -19,6 +19,48 @@ export async function analyzeContentWithAI(
   return generateHeuristicSummary(data);
 }
 
+async function resolveImagePart(
+  imageUrlOrBase64?: string
+): Promise<{ inlineData: { data: string; mimeType: string } } | null> {
+  if (!imageUrlOrBase64) return null;
+
+  try {
+    // 1. Data URI: data:image/png;base64,...
+    if (imageUrlOrBase64.startsWith("data:")) {
+      const match = imageUrlOrBase64.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        return {
+          inlineData: {
+            mimeType: match[1],
+            data: match[2],
+          },
+        };
+      }
+    }
+
+    // 2. HTTP/HTTPS URL
+    if (imageUrlOrBase64.startsWith("http://") || imageUrlOrBase64.startsWith("https://")) {
+      const res = await fetch(imageUrlOrBase64, {
+        signal: AbortSignal.timeout(7000),
+      });
+      if (res.ok) {
+        const arrayBuf = await res.arrayBuffer();
+        const buf = Buffer.from(arrayBuf);
+        const contentType = res.headers.get("content-type")?.split(";")[0] || "image/jpeg";
+        return {
+          inlineData: {
+            mimeType: contentType,
+            data: buf.toString("base64"),
+          },
+        };
+      }
+    }
+  } catch (err) {
+    console.warn("Could not resolve image part for Gemini multimodal analysis:", err);
+  }
+  return null;
+}
+
 async function generateGeminiSummary(
   data: ScrapedData,
   apiKey: string
@@ -34,8 +76,12 @@ async function generateGeminiSummary(
 
   const detectedType = detectContentType(data.url);
 
-  const prompt = `You are an elite research assistant and multimodal content analyst.
-Analyze the following webpage, video metadata, description, and on-screen details. Return a structured JSON response.
+  // Attempt to load visual image/screenshot part for multimodal vision OCR
+  const imageSource = data.screenshotImage || data.screenshot || data.image;
+  const imagePart = await resolveImagePart(imageSource);
+
+  const prompt = `You are an elite multimodal AI researcher and visual OCR analyst.
+Analyze the following webpage, video metadata, description, and attached visual image/screenshot. Return a structured JSON response.
 
 URL: ${data.url}
 Detected Content Type: ${detectedType}
@@ -43,21 +89,28 @@ Title: ${data.title}
 Site: ${data.siteName}
 Author: ${data.author || "Unknown"}
 Headings: ${data.headings.join(", ")}
+${data.onScreenNotes ? `User-noted on-screen / dialogue details:\n${data.onScreenNotes}\n` : ""}
 Content sample & video description:
 ${data.extractedText.slice(0, 6000)}
 
-CRITICAL EXTRACTION INSTRUCTIONS:
+CRITICAL MULTIMODAL & ON-SCREEN EXTRACTION INSTRUCTIONS:
 1. "contactInfo":
-   - Carefully look for ANY contact details (phone numbers, WhatsApp numbers, customer service, sales numbers, emails, addresses, website links, social media handles, pricing or promo codes) mentioned in the video, on screen, or in the description.
-   - Return them in the "contactInfo" object.
+   - IF AN IMAGE / SCREENSHOT IS ATTACHED: Carefully inspect every corner, banner, poster frame, text overlay, business board, watermark, and video subtitle.
+   - Look for ALL contact phone numbers (including Indian 10-digit mobile numbers starting with 6/7/8/9, +91, 0, or formatted numbers), WhatsApp numbers/links, emails, shop or office addresses, city/state, pricing or discount offers, and social handles (@...).
+   - Also scan the description, headings, and notes for phone numbers and contacts.
+   - Return every detected phone number in contactInfo.phoneNumbers.
+   - Return any WhatsApp link or handle in contactInfo.whatsappOrSocials.
+   - Return shop name/address in contactInfo.addressOrLocation.
+   - Return prices or offers in contactInfo.pricingOrOffers.
 2. "spokenOrOnScreenContent":
-   - Provide a clear, detailed 1-2 paragraph description of WHAT IS SPOKEN, NARRATED, OR SHOWN ON SCREEN in this video/page (e.g. demonstrations, explanations, key visual moments, contact numbers displayed).
+   - Provide a clear, detailed 1-2 paragraph description of WHAT IS SPOKEN, NARRATED, OR SHOWN ON SCREEN in this video/page/screenshot (e.g. demonstrations, products showcased, key visual moments, contact numbers displayed).
 3. "keyTakeaways":
    - The VERY FIRST ITEM in "keyTakeaways" MUST explicitly state what this content is about:
      * If this is a VIDEO: Start with "🎥 Video Focus / What it's about: [Description of what the video covers, the demonstration, the speaker's premise, and subject matter]".
      * If this is a CODE REPOSITORY or TOOL: Start with "📦 Project Focus / What it is: [Description of what this project/software does, its core capabilities and purpose]".
      * If this is an ARTICLE or GUIDE: Start with "📌 Topic / What this is about: [Description of the core subject matter and primary thesis]".
-   - If contact numbers or WhatsApp are detected, make sure one of the bullet points starts with "📞 Contact & On-Screen Details: [Phone numbers, emails, links]".
+   - IF CONTACT NUMBERS, WHATSAPP, OR SHOP DETAILS ARE DETECTED (via OCR, on-screen text, or notes):
+     * Include a bullet point starting with "📞 Contact & On-Screen Details: [Phone numbers, WhatsApp, Address]".
    - Include 2-3 other key insights, data points, or takeaways.
 
 Return ONLY valid JSON matching this schema:
@@ -88,7 +141,8 @@ Return ONLY valid JSON matching this schema:
   "estimatedReadTime": "X min read (or Video watch)"
 }`;
 
-  const result = await model.generateContent(prompt);
+  const contents = imagePart ? [prompt, imagePart] : prompt;
+  const result = await model.generateContent(contents);
   const response = await result.response;
   const text = response.text();
 
@@ -118,6 +172,17 @@ Return ONLY valid JSON matching this schema:
     const mergedEmails = Array.from(new Set([...aiEmails, ...(data.detectedContacts?.emails || [])]));
     const mergedLinks = Array.from(new Set([...aiLinks, ...(data.detectedContacts?.links || [])])).slice(0, 8);
 
+    // If contacts exist but AI did not add the contact bullet to keyTakeaways, add it now!
+    const hasContactTakeaway = takeaways.some(
+      (t) => t.toLowerCase().includes("contact & on-screen details") || t.toLowerCase().includes("phone:")
+    );
+    if (!hasContactTakeaway && (mergedPhones.length > 0 || mergedEmails.length > 0)) {
+      const contactPieces: string[] = [];
+      if (mergedPhones.length > 0) contactPieces.push(`Phone: ${mergedPhones.join(", ")}`);
+      if (mergedEmails.length > 0) contactPieces.push(`Email: ${mergedEmails.join(", ")}`);
+      takeaways.push(`📞 Contact & On-Screen Details: ${contactPieces.join(" • ")}`);
+    }
+
     const contacts: ExtractedContacts = {
       phoneNumbers: mergedPhones,
       emails: mergedEmails,
@@ -141,7 +206,7 @@ Return ONLY valid JSON matching this schema:
       estimatedReadTime: parsed.estimatedReadTime || estimateReadTime(data.extractedText, contentType),
       isAiGenerated: true,
       contacts,
-      spokenOrOnScreenContent: parsed.spokenOrOnScreenContent || undefined,
+      spokenOrOnScreenContent: parsed.spokenOrOnScreenContent || (data.onScreenNotes ? `On-screen details: ${data.onScreenNotes}` : undefined),
     };
   } catch (jsonErr) {
     console.error("Failed to parse Gemini JSON output:", jsonErr, text);

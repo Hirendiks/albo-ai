@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { Category, AnalyzedLink, CategoryColor } from "@/types";
 import { CategoryIcon } from "./Icons";
 import { CATEGORY_COLORS } from "@/lib/colorTheme";
@@ -16,6 +16,9 @@ import {
   FileText,
   Plus,
   FolderPlus,
+  Camera,
+  Image as ImageIcon,
+  UploadCloud,
 } from "lucide-react";
 
 interface AddLinkModalProps {
@@ -61,26 +64,28 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
   );
   const [notes, setNotes] = useState(initialNotes);
   const [onScreenNotes, setOnScreenNotes] = useState(initialNotes);
+  const [screenshotImage, setScreenshotImage] = useState<string>("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Inline category creation state
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
   const [newCatName, setNewCatName] = useState("");
   const [newCatColor, setNewCatColor] = useState<CategoryColor>("purple");
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialUrl) {
       setUrl(initialUrl);
     }
   }, [initialUrl]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (initialNotes) {
       setNotes(initialNotes);
       setOnScreenNotes(initialNotes);
     }
   }, [initialNotes]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if ((!targetCategory || !categories.some(c => c.id === targetCategory)) && categories.length > 0) {
       setTargetCategory(
         selectedCategoryId && selectedCategoryId !== "favorites-filter"
@@ -89,6 +94,33 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
       );
     }
   }, [categories, selectedCategoryId, targetCategory]);
+
+  // Global clipboard paste listener for screenshots while modal is open
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleWindowPaste = (e: ClipboardEvent) => {
+      if (e.clipboardData && e.clipboardData.items) {
+        for (let i = 0; i < e.clipboardData.items.length; i++) {
+          const item = e.clipboardData.items[i];
+          if (item.type.indexOf("image") !== -1) {
+            const file = item.getAsFile();
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = (ev) => {
+                const res = ev.target?.result as string;
+                if (res) setScreenshotImage(res);
+              };
+              reader.readAsDataURL(file);
+              break;
+            }
+          }
+        }
+      }
+    };
+    window.addEventListener("paste", handleWindowPaste);
+    return () => window.removeEventListener("paste", handleWindowPaste);
+  }, [isOpen]);
+
   const [stage, setStage] = useState<Stage>("idle");
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -125,6 +157,45 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
     }
   };
 
+  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      if (base64) {
+        setScreenshotImage(base64);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePasteImageFromClipboard = async () => {
+    try {
+      if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.read) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const imageType = item.types.find((t) => t.startsWith("image/"));
+          if (imageType) {
+            const blob = await item.getType(imageType);
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+              const res = ev.target?.result as string;
+              if (res) setScreenshotImage(res);
+            };
+            reader.readAsDataURL(blob);
+            return;
+          }
+        }
+      }
+      // If no image was found, attempt pasting text
+      handlePasteClipboard();
+    } catch (err) {
+      console.warn("Could not read image from clipboard:", err);
+      handlePasteClipboard();
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url.trim() || !targetCategory) return;
@@ -146,6 +217,7 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
           apiKey: apiKey || undefined,
           notes: notes.trim() || undefined,
           onScreenNotes: onScreenNotes.trim() || undefined,
+          screenshotImage: screenshotImage || undefined,
         }),
       });
 
@@ -171,6 +243,7 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
     setUrl("");
     setNotes("");
     setOnScreenNotes("");
+    setScreenshotImage("");
     setIsCreatingCategory(false);
     setNewCatName("");
     setStage("idle");
@@ -392,25 +465,81 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
             </div>
           </div>
 
-          {/* On-Screen & Spoken Details Field */}
-          <div className="p-3 rounded-2xl bg-emerald-950/20 border border-emerald-500/25 space-y-1.5">
-            <label className="block text-xs font-semibold text-emerald-300 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
+          {/* On-Screen & Flashed Phone Details Field with Vision OCR */}
+          <div className="p-3.5 rounded-2xl bg-emerald-950/25 border border-emerald-500/30 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Flashed Phone / On-Screen Details (Optional)</span>
+                <span>On-Screen Contact & Flashed Details (Optional)</span>
+              </label>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-medium">
+                Vision OCR
               </span>
-              <span className="text-[10px] text-emerald-400/80 font-mono">Auto-extracted</span>
-            </label>
+            </div>
+
             <input
               type="text"
               disabled={isLoading}
               value={onScreenNotes}
               onChange={(e) => setOnScreenNotes(e.target.value)}
-              placeholder="e.g. Phone on screen: +91 98110 54321, shop location, WhatsApp..."
-              className="w-full px-3.5 py-2.5 rounded-xl text-xs glass-input text-slate-100 placeholder-slate-400 focus:ring-1 focus:ring-emerald-400 border-emerald-500/20 disabled:opacity-50"
+              placeholder="e.g. Flashed phone: +91 99250 12345, WhatsApp, shop address..."
+              className="w-full px-3.5 py-2 rounded-xl text-xs glass-input text-slate-100 placeholder-slate-400 focus:ring-1 focus:ring-emerald-400 border-emerald-500/20 disabled:opacity-50"
             />
+
+            {/* Screenshot / Photo Attachment for Multimodal Vision OCR */}
+            <div className="pt-1 flex flex-wrap items-center justify-between gap-2">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleImageFileChange}
+                accept="image/*"
+                className="hidden"
+              />
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium glass-button text-emerald-300 hover:text-emerald-200 border-emerald-500/30 hover:border-emerald-500/50 transition-all"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Attach Screenshot</span>
+                </button>
+
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={handlePasteImageFromClipboard}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium glass-button text-cyan-300 hover:text-cyan-200 border-cyan-500/30 hover:border-cyan-500/50 transition-all"
+                >
+                  <Clipboard className="w-3.5 h-3.5" />
+                  <span>Paste Image</span>
+                </button>
+              </div>
+
+              {screenshotImage && (
+                <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-emerald-500/20 border border-emerald-400/40 text-emerald-200 text-xs">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={screenshotImage}
+                    alt="Attached screenshot preview"
+                    className="w-5 h-5 rounded object-cover border border-emerald-400/50"
+                  />
+                  <span className="font-medium text-[11px]">Screenshot attached</span>
+                  <button
+                    type="button"
+                    onClick={() => setScreenshotImage("")}
+                    className="text-emerald-300 hover:text-white ml-1 font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </div>
+
             <p className="text-[10px] text-slate-400 leading-normal">
-              💡 If a phone number or shop address is flashed on video frames or spoken, enter it here. Albo will generate instant call, WhatsApp, and copy buttons for it!
+              💡 If a phone number, WhatsApp, or shop address was flashed on screen in the video, attach/paste a screenshot or type the details here. Albo will OCR it and generate 1-tap call & WhatsApp buttons!
             </p>
           </div>
 

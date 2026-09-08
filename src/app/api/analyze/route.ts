@@ -9,7 +9,14 @@ export const dynamic = "force-dynamic";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { url, categoryId = "cat-tech", apiKey, notes, onScreenNotes } = body;
+    const {
+      url,
+      categoryId = "cat-tech",
+      apiKey,
+      notes,
+      onScreenNotes,
+      screenshotImage,
+    } = body;
 
     if (!url || typeof url !== "string") {
       return NextResponse.json(
@@ -18,12 +25,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const combinedNotes = onScreenNotes || notes;
+    const combinedNotes = [onScreenNotes, notes].filter(Boolean).join("\n\n");
 
-    // Step 1: Scrape Webpage metadata, full description, and contact info
-    const scrapedData = await scrapeUrl(url, combinedNotes);
+    // Step 1: Scrape Webpage metadata, full description, contact info, and screenshot
+    const scrapedData = await scrapeUrl(url, combinedNotes, screenshotImage);
 
-    // Step 2: Run AI or Heuristic Analysis
+    // Step 2: Run AI or Heuristic Analysis (with Multimodal Vision if screenshot/image available)
     const aiSummary = await analyzeContentWithAI(scrapedData, apiKey);
 
     // Step 3: Construct AnalyzedLink record

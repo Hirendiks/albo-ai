@@ -21,24 +21,58 @@ export function extractRegexContacts(text: string): {
   const rawEmails = text.match(emailRegex) || [];
   const emails = Array.from(new Set(rawEmails.map((e) => e.toLowerCase())));
 
-  // 2. Phone number extraction (handles +91, +1, UK, 10-digit mobile, brackets, dashes, spaces)
-  const phoneRegex = /(?:(?:\+|00)\d{1,4}[-.\s]*)?(?:\(?\d{2,5}\)?[-.\s]*)?\d{3,5}[-.\s]*\d{3,5}(?:[-.\s]*\d{1,5})?/g;
-  const rawPhones = text.match(phoneRegex) || [];
+  const foundPhones: string[] = [];
+
+  // 2. WhatsApp links (wa.me/919925012345 or api.whatsapp.com/send?phone=...)
+  const waRegex = /(?:wa\.me\/(?:(?:\+|00)?(\d{7,15}))|api\.whatsapp\.com\/send\?(?:[^&]*&)*phone=(?:(?:\+|00)?(\d{7,15})))/gi;
+  let waMatch;
+  while ((waMatch = waRegex.exec(text)) !== null) {
+    const num = waMatch[1] || waMatch[2];
+    if (num && num.length >= 8 && num.length <= 15) {
+      foundPhones.push(num.startsWith("91") && num.length === 12 ? `+${num}` : num);
+    }
+  }
+
+  // 3. Keyword-anchored contacts (Call: 9925012345, WhatsApp: +91 98251 67890, Mo: 98110..., Helpline: ...)
+  const anchoredRegex = /(?:call|phone|ph|mob|mo|whatsapp|wa|contact|booking|helpline|order|tel|cust(?:omer)?\s*care)[\s.:-]*([+\d\s().-]{7,20})/gi;
+  let anchMatch;
+  while ((anchMatch = anchoredRegex.exec(text)) !== null) {
+    const candidate = anchMatch[1].trim();
+    const digits = candidate.replace(/\D/g, "");
+    if (digits.length >= 8 && digits.length <= 15) {
+      foundPhones.push(candidate);
+    }
+  }
+
+  // 4. Standalone Indian 10-digit mobile numbers (starts with 6, 7, 8, or 9, with optional +91, 91, or 0)
+  const indianMobileRegex = /(?:(?:\+|00)91[\s.-]?)?[6-9]\d{4}[\s.-]?\d{5}\b|(?:(?:\+|00)91[\s.-]?)?[6-9]\d{2}[\s.-]?\d{3}[\s.-]?\d{4}\b|(?:(?:\+|00)91[\s.-]?)?[6-9]\d{9}\b/g;
+  const rawIndian = text.match(indianMobileRegex) || [];
+  rawIndian.forEach((p) => foundPhones.push(p.trim()));
+
+  // 5. Standard international phone number extraction (brackets, dashes, spaces, country codes)
+  const generalPhoneRegex = /(?:(?:\+|00)\d{1,4}[-.\s]*)?(?:\(?\d{2,5}\)?[-.\s]*)?\d{3,5}[-.\s]*\d{3,5}(?:[-.\s]*\d{1,5})?/g;
+  const rawPhones = text.match(generalPhoneRegex) || [];
+  rawPhones.forEach((p) => foundPhones.push(p.trim()));
+
+  // Deduplicate and filter out timestamps, years, and dimension noise
   const validPhones = Array.from(
     new Set(
-      rawPhones
-        .map((p) => p.trim())
+      foundPhones
+        .map((p) => p.replace(/[.,;:)\]]+$/, "").trim())
         .filter((p) => {
           const digits = p.replace(/\D/g, "");
           // Valid phone numbers are usually between 8 and 15 digits
-          // Filter out typical false positives like timestamps or years (e.g. 2024, 2025)
+          if (digits.length < 8 || digits.length > 15) return false;
+          // Filter out typical false positives like timestamps or years (e.g. 2024, 2025, 2026)
           const isYear = /^202[0-9]/.test(digits) && digits.length <= 8;
-          return digits.length >= 8 && digits.length <= 15 && !isYear;
+          // Filter out dimensions like 1920x1080
+          const isDimension = /^\d{3,4}[xX]\d{3,4}$/.test(p);
+          return !isYear && !isDimension;
         })
     )
-  ).slice(0, 6);
+  ).slice(0, 8);
 
-  // 3. URLs and social links
+  // 6. URLs and social links
   const urlRegex = /https?:\/\/[^\s<>"]+/g;
   const rawUrls = text.match(urlRegex) || [];
   const links = Array.from(
@@ -54,7 +88,8 @@ export function extractRegexContacts(text: string): {
 
 export async function scrapeUrl(
   rawUrl: string,
-  onScreenNotes?: string
+  onScreenNotes?: string,
+  screenshotImage?: string
 ): Promise<ScrapedData> {
   const url = normalizeUrl(rawUrl);
   const parsedUrl = new URL(url);
@@ -76,6 +111,7 @@ export async function scrapeUrl(
   let youtubeVideoId: string | null = null;
   let oembedData: { title?: string; author_name?: string; thumbnail_url?: string; description?: string } | null = null;
   let youtubeFullDescription = "";
+  let mlScreenshot: string | undefined = undefined;
 
   // 1. YouTube oEmbed
   if (isYouTube) {
@@ -158,12 +194,15 @@ export async function scrapeUrl(
       let mlDesc: string | undefined = undefined;
 
       try {
-        const mlRes = await fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`, {
-          signal: AbortSignal.timeout(5000),
+        const mlRes = await fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}&screenshot=true`, {
+          signal: AbortSignal.timeout(6000),
         });
         if (mlRes.ok) {
           const mlData = await mlRes.json();
           if (mlData.data) {
+            if (mlData.data.screenshot?.url) {
+              mlScreenshot = mlData.data.screenshot.url;
+            }
             if (mlData.data.image?.url) {
               mlImage = mlData.data.image.url;
             }
@@ -187,7 +226,7 @@ export async function scrapeUrl(
       oembedData = {
         title: displayTitle,
         author_name: authorDisplay || "Instagram Creator",
-        thumbnail_url: mlImage,
+        thumbnail_url: mlImage || mlScreenshot,
         description: displayDesc,
       };
     } catch (err) {
@@ -366,12 +405,14 @@ export async function scrapeUrl(
       metaDescription = youtubeFullDescription.slice(0, 500);
     }
 
-    // Extract Image
+    // Extract Image (prioritize user uploaded screenshot, then oembed / meta, then screenshot)
     let metaImage =
+      screenshotImage ||
       oembedData?.thumbnail_url ||
       $('meta[property="og:image"]').attr("content") ||
       $('meta[name="twitter:image"]').attr("content") ||
       $('meta[name="twitter:image:src"]').attr("content") ||
+      mlScreenshot ||
       "";
 
     if (!metaImage && youtubeVideoId) {
@@ -464,6 +505,8 @@ export async function scrapeUrl(
       title: cleanTitle(metaTitle),
       description: metaDescription.trim(),
       image: metaImage || undefined,
+      screenshot: screenshotImage || mlScreenshot || undefined,
+      screenshotImage,
       favicon,
       siteName: metaSiteName,
       author: metaAuthor,
@@ -489,9 +532,11 @@ export async function scrapeUrl(
       url,
       title: pathnameClean ? `${pathnameClean} - ${cleanDomain}` : cleanDomain,
       description: `Link saved from ${domain}`,
-      image: youtubeVideoId
+      image: screenshotImage || (youtubeVideoId
         ? `https://img.youtube.com/vi/${youtubeVideoId}/hqdefault.jpg`
-        : undefined,
+        : undefined),
+      screenshot: screenshotImage || undefined,
+      screenshotImage,
       favicon: fallbackFavicon,
       siteName: cleanDomain,
       extractedText: fallbackText,
