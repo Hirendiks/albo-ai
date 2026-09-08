@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { ScrapedData, AISummary, ContentType, ExtractedContacts } from "@/types";
+import { deduplicatePhoneNumbers } from "./scraper";
 
 export async function analyzeContentWithAI(
   data: ScrapedData,
@@ -17,6 +18,77 @@ export async function analyzeContentWithAI(
 
   // Graceful heuristic fallback
   return generateHeuristicSummary(data);
+}
+
+/**
+ * Ensures key takeaways contain only unique, high-value insights,
+ * completely filtering out redundant contact details, title echoes, and TL;DR clones.
+ */
+export function cleanAndDeduplicateTakeaways(
+  takeaways: string[],
+  title?: string,
+  tldr?: string
+): string[] {
+  if (!takeaways || !Array.isArray(takeaways)) return [];
+
+  const cleanTitle = (title || "").toLowerCase().replace(/[^a-z0-9]/g, " ").trim();
+  const cleanTldr = (tldr || "").toLowerCase().replace(/[^a-z0-9]/g, " ").trim();
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const raw of takeaways) {
+    if (!raw || typeof raw !== "string") continue;
+    let point = raw.trim();
+    if (point.length < 5) continue;
+
+    const lower = point.toLowerCase();
+
+    // 1. Omit contact bullets from takeaways — contacts have their own dedicated category!
+    if (
+      lower.includes("📞") ||
+      lower.includes("contact & on-screen") ||
+      lower.startsWith("phone:") ||
+      lower.startsWith("whatsapp:") ||
+      lower.startsWith("email:") ||
+      lower.includes("contact details:")
+    ) {
+      continue;
+    }
+
+    // 2. Strip repetitive boilerplate prefixes
+    point = point
+      .replace(/^[🎥📦🛠️📌]\s*(?:video focus|project focus|tool overview|topic)\s*\/\s*(?:what it's about|what it is|what it does|what this is about):\s*/i, "")
+      .trim();
+
+    const lowerClean = point.toLowerCase().replace(/[^a-z0-9]/g, " ").trim();
+
+    // 3. Remove takeaways that merely echo the title or generic crawler boilerplate
+    if (cleanTitle && (lowerClean === cleanTitle || lowerClean.startsWith(cleanTitle))) {
+      const rest = lowerClean.replace(cleanTitle, "").trim();
+      if (
+        rest.length < 20 ||
+        rest.includes("in depth discussion and insights") ||
+        rest.includes("visual presentation and walkthrough")
+      ) {
+        continue;
+      }
+    }
+
+    // 4. Remove takeaways that duplicate the TL;DR
+    if (cleanTldr && (lowerClean === cleanTldr || cleanTldr.includes(lowerClean) || lowerClean.includes(cleanTldr))) {
+      continue;
+    }
+
+    // 5. Deduplicate identical or near-identical takeaways
+    const key = lowerClean.slice(0, 35);
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    result.push(point);
+  }
+
+  return result.slice(0, 5);
 }
 
 async function resolveImagePart(
@@ -102,25 +174,22 @@ CRITICAL MULTIMODAL & ON-SCREEN EXTRACTION INSTRUCTIONS:
    - Return any WhatsApp link or handle in contactInfo.whatsappOrSocials.
    - Return shop name/address in contactInfo.addressOrLocation.
    - Return prices or offers in contactInfo.pricingOrOffers.
+   - DO NOT include phone numbers, addresses, or emails in "keyTakeaways" or "tldr" — keep them strictly inside "contactInfo".
 2. "spokenOrOnScreenContent":
-   - Provide a clear, detailed 1-2 paragraph description of WHAT IS SPOKEN, NARRATED, OR SHOWN ON SCREEN in this video/page/screenshot (e.g. demonstrations, products showcased, key visual moments, contact numbers displayed).
+   - Provide a clear, detailed 1-2 paragraph description of WHAT IS SPOKEN, NARRATED, OR SHOWN ON SCREEN in this video/page/screenshot (e.g. demonstrations, products showcased, key visual moments).
 3. "keyTakeaways":
-   - The VERY FIRST ITEM in "keyTakeaways" MUST explicitly state what this content is about:
-     * If this is a VIDEO: Start with "🎥 Video Focus / What it's about: [Description of what the video covers, the demonstration, the speaker's premise, and subject matter]".
-     * If this is a CODE REPOSITORY or TOOL: Start with "📦 Project Focus / What it is: [Description of what this project/software does, its core capabilities and purpose]".
-     * If this is an ARTICLE or GUIDE: Start with "📌 Topic / What this is about: [Description of the core subject matter and primary thesis]".
-   - IF CONTACT NUMBERS, WHATSAPP, OR SHOP DETAILS ARE DETECTED (via OCR, on-screen text, or notes):
-     * Include a bullet point starting with "📞 Contact & On-Screen Details: [Phone numbers, WhatsApp, Address]".
-   - Include 2-3 other key insights, data points, or takeaways.
+   - 3 to 5 distinct, high-value insights, findings, or points covered in this content.
+   - DO NOT repeat the title.
+   - DO NOT include phone numbers, WhatsApp, or contact details in keyTakeaways (they belong exclusively in contactInfo).
+   - Every takeaway must provide genuine new information without repeating other takeaways.
 
 Return ONLY valid JSON matching this schema:
 {
-  "tldr": "1 to 2 crisp, high-impact sentences summarizing the core value or main thesis.",
+  "tldr": "1 to 2 crisp, high-impact sentences summarizing the core value or main thesis. Do not include phone numbers or repeat the title verbatim.",
   "keyTakeaways": [
-    "🎥 Video Focus / What it's about: ...",
-    "Key insight 2",
-    "📞 Contact & On-Screen Details: Phone: ..., Email: ...",
-    "Key insight 4"
+    "Distinct key insight 1",
+    "Distinct key insight 2",
+    "Distinct key insight 3"
   ],
   "detailedSummary": "A comprehensive 2-3 paragraph summary breaking down the context, main concepts, and why this matters.",
   "actionableInsights": [
@@ -128,7 +197,7 @@ Return ONLY valid JSON matching this schema:
     "Actionable tip or takeaway 2"
   ],
   "contactInfo": {
-    "phoneNumbers": ["+1234567890"],
+    "phoneNumbers": ["+91 98765 43210"],
     "emails": ["contact@example.com"],
     "links": ["https://..."],
     "whatsappOrSocials": ["@handle or wa.me/..."],
@@ -149,39 +218,21 @@ Return ONLY valid JSON matching this schema:
   try {
     const parsed = JSON.parse(text);
     const contentType = detectContentType(data.url, parsed.contentType);
-    let takeaways: string[] = Array.isArray(parsed.keyTakeaways) ? parsed.keyTakeaways : [];
+    const rawTakeaways: string[] = Array.isArray(parsed.keyTakeaways) ? parsed.keyTakeaways : [];
 
-    if (takeaways.length === 0) {
-      takeaways = [data.description || data.title];
-    }
-    const firstLower = (takeaways[0] || "").toLowerCase();
-    if (contentType === "video" && !firstLower.includes("video focus") && !firstLower.includes("what it's about") && !firstLower.includes("video is about")) {
-      takeaways[0] = `🎥 Video Focus / What it's about: ${takeaways[0]}`;
-    } else if (contentType === "repository" && !firstLower.includes("project focus") && !firstLower.includes("what it is")) {
-      takeaways[0] = `📦 Project Focus / What it is: ${takeaways[0]}`;
-    } else if (contentType !== "video" && contentType !== "repository" && !firstLower.includes("what this is about") && !firstLower.includes("topic /")) {
-      takeaways[0] = `📌 Topic / What this is about: ${takeaways[0]}`;
-    }
+    // Deduplicate and clean takeaways (removes title echoes, contact bullets, duplicate lines)
+    const takeaways = cleanAndDeduplicateTakeaways(rawTakeaways, data.title, parsed.tldr);
 
-    // Merge regex-detected contacts if AI missed any
+    // Merge and strictly deduplicate contacts
     const aiPhones = Array.isArray(parsed.contactInfo?.phoneNumbers) ? parsed.contactInfo.phoneNumbers : [];
     const aiEmails = Array.isArray(parsed.contactInfo?.emails) ? parsed.contactInfo.emails : [];
     const aiLinks = Array.isArray(parsed.contactInfo?.links) ? parsed.contactInfo.links : [];
 
-    const mergedPhones = Array.from(new Set([...aiPhones, ...(data.detectedContacts?.phoneNumbers || [])]));
-    const mergedEmails = Array.from(new Set([...aiEmails, ...(data.detectedContacts?.emails || [])]));
-    const mergedLinks = Array.from(new Set([...aiLinks, ...(data.detectedContacts?.links || [])])).slice(0, 8);
-
-    // If contacts exist but AI did not add the contact bullet to keyTakeaways, add it now!
-    const hasContactTakeaway = takeaways.some(
-      (t) => t.toLowerCase().includes("contact & on-screen details") || t.toLowerCase().includes("phone:")
+    const mergedPhones = deduplicatePhoneNumbers([...aiPhones, ...(data.detectedContacts?.phoneNumbers || [])]);
+    const mergedEmails = Array.from(
+      new Set([...aiEmails, ...(data.detectedContacts?.emails || [])].map((e) => e.toLowerCase().trim()))
     );
-    if (!hasContactTakeaway && (mergedPhones.length > 0 || mergedEmails.length > 0)) {
-      const contactPieces: string[] = [];
-      if (mergedPhones.length > 0) contactPieces.push(`Phone: ${mergedPhones.join(", ")}`);
-      if (mergedEmails.length > 0) contactPieces.push(`Email: ${mergedEmails.join(", ")}`);
-      takeaways.push(`📞 Contact & On-Screen Details: ${contactPieces.join(" • ")}`);
-    }
+    const mergedLinks = Array.from(new Set([...aiLinks, ...(data.detectedContacts?.links || [])])).slice(0, 8);
 
     const contacts: ExtractedContacts = {
       phoneNumbers: mergedPhones,
@@ -244,43 +295,38 @@ export function generateHeuristicSummary(data: ScrapedData): AISummary {
     tldr = cleanDesc;
   }
 
-  // Key takeaways from sentences
-  const keyTakeaways: string[] = [];
+  // Key takeaways from headings and informative sentences
+  const rawTakeaways: string[] = [];
   if (data.headings.length > 0) {
-    data.headings.slice(0, 3).forEach((h) => keyTakeaways.push(h));
+    data.headings.slice(0, 3).forEach((h) => rawTakeaways.push(h));
   }
-  if (sentences.length > 1 && keyTakeaways.length < 4) {
-    const sampled = sentences.slice(1, 4);
-    sampled.forEach((s) => {
-      if (!keyTakeaways.includes(s)) keyTakeaways.push(s);
-    });
-  }
-
-  // Generate primary "What it's about" takeaway
-  let primaryTakeaway = "";
-  if (contentType === "video") {
-    primaryTakeaway = `🎥 Video Focus / What it's about: ${data.title} — visual presentation and walkthrough covering core concepts and demonstrations by ${data.author || data.siteName || "creator"}.`;
-  } else if (contentType === "repository") {
-    primaryTakeaway = `📦 Project Focus / What it is: ${data.title} — open source codebase and technical tooling implementation on ${data.siteName || "GitHub"}.`;
-  } else if (contentType === "tool") {
-    primaryTakeaway = `🛠️ Tool Overview / What it does: ${data.title} — software utility and application designed to streamline workflows.`;
-  } else {
-    primaryTakeaway = `📌 Topic / What this is about: ${data.title} — in-depth discussion and insights curated from ${data.siteName || "the web"}.`;
+  if (sentences.length > 0) {
+    for (const s of sentences) {
+      if (rawTakeaways.length >= 4) break;
+      if (!rawTakeaways.includes(s)) rawTakeaways.push(s);
+    }
   }
 
-  const finalTakeaways = [primaryTakeaway, ...keyTakeaways];
+  // Deduplicate and clean takeaways (removes title echoes, contact bullets, duplicate lines)
+  let cleanTakeaways = cleanAndDeduplicateTakeaways(rawTakeaways, data.title, tldr);
 
-  // Contacts
-  const detectedPhones = data.detectedContacts?.phoneNumbers || [];
-  const detectedEmails = data.detectedContacts?.emails || [];
-  const detectedLinks = data.detectedContacts?.links || [];
-
-  if (detectedPhones.length > 0 || detectedEmails.length > 0) {
-    const contactPieces: string[] = [];
-    if (detectedPhones.length > 0) contactPieces.push(`Phone: ${detectedPhones.join(", ")}`);
-    if (detectedEmails.length > 0) contactPieces.push(`Email: ${detectedEmails.join(", ")}`);
-    finalTakeaways.push(`📞 Contact & On-Screen Details: ${contactPieces.join(" • ")}`);
+  // If clean takeaways is empty, provide a clean contextual insight rather than repeating title
+  if (cleanTakeaways.length === 0) {
+    if (contentType === "video") {
+      cleanTakeaways = [`Visual demonstration and core walkthrough presented by ${data.author || data.siteName || "creator"}.`];
+    } else if (contentType === "repository") {
+      cleanTakeaways = [`Open source codebase and software tooling implementation.`];
+    } else {
+      cleanTakeaways = [`Curated resource and reference materials from ${data.siteName || "the web"}.`];
+    }
   }
+
+  // Strictly deduplicated contacts
+  const detectedPhones = deduplicatePhoneNumbers(data.detectedContacts?.phoneNumbers || []);
+  const detectedEmails = Array.from(
+    new Set((data.detectedContacts?.emails || []).map((e) => e.toLowerCase().trim()))
+  );
+  const detectedLinks = Array.from(new Set(data.detectedContacts?.links || [])).slice(0, 8);
 
   // Tags generation
   const candidateWords = (data.title + " " + (data.headings.join(" ") || ""))
@@ -298,25 +344,25 @@ export function generateHeuristicSummary(data: ScrapedData): AISummary {
   const detailedSummary =
     sentences.length > 2
       ? sentences.slice(0, 4).join(" ")
-      : `${data.title}. ${data.description || "Contains in-depth information, resources, and insights from " + data.siteName}.`;
+      : `${data.description || "In-depth resource and insights curated from " + data.siteName}.`;
 
-  // Spoken / On-screen explanation
+  // Spoken / On-screen explanation (without repeating contact numbers)
   let spokenOrOnScreenContent: string | undefined = undefined;
   if (data.onScreenNotes) {
-    spokenOrOnScreenContent = `On-Screen & Spoken Details noted: ${data.onScreenNotes}`;
+    spokenOrOnScreenContent = `On-Screen & Spoken Details: ${data.onScreenNotes}`;
   } else if (data.rawFullDescription && !data.rawFullDescription.trim().startsWith("#") && data.rawFullDescription.trim().length > 30) {
-    spokenOrOnScreenContent = `Video Narration & Details:\n${data.rawFullDescription.slice(0, 500)}`;
+    spokenOrOnScreenContent = `Video Narration & Context:\n${data.rawFullDescription.slice(0, 500)}`;
   } else if (contentType === "video") {
-    spokenOrOnScreenContent = `Visual walkthrough and demonstration featuring "${data.title}" by ${data.author || data.siteName || "creator"}.`;
+    spokenOrOnScreenContent = `Visual walkthrough and demonstration featuring ${data.author || data.siteName || "creator"}.`;
   }
 
   return {
     tldr,
-    keyTakeaways: finalTakeaways.slice(0, 5),
+    keyTakeaways: cleanTakeaways.slice(0, 5),
     detailedSummary,
     actionableInsights: [
       contentType === "video"
-        ? `Watch key sections or follow the demonstration outlined in ${data.title}.`
+        ? `Watch key sections or follow the demonstration outlined by ${data.author || data.siteName || "the creator"}.`
         : `Save or share this reference for your ${uniqueTags[0] || "learning"} workflow.`,
       `Explore further discussions or related resources on ${data.siteName || "the original platform"}.`,
     ],

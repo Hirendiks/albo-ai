@@ -4,6 +4,8 @@ import React, { useState } from "react";
 import { AnalyzedLink, Category } from "@/types";
 import { CATEGORY_COLORS } from "@/lib/colorTheme";
 import { CategoryIcon } from "./Icons";
+import { cleanAndDeduplicateTakeaways } from "@/lib/ai";
+import { deduplicatePhoneNumbers } from "@/lib/scraper";
 import {
   ExternalLink,
   Star,
@@ -16,6 +18,7 @@ import {
   BrainCircuit,
   CheckCircle2,
   PhoneCall,
+  Check,
 } from "lucide-react";
 
 interface LinkCardProps {
@@ -36,6 +39,15 @@ export const LinkCard: React.FC<LinkCardProps> = ({
   onDelete,
 }) => {
   const [copied, setCopied] = useState(false);
+  const [copiedPhone, setCopiedPhone] = useState(false);
+
+  const phoneNumbers = deduplicatePhoneNumbers(link.aiSummary.contacts?.phoneNumbers || []);
+  const displayTakeaways = cleanAndDeduplicateTakeaways(
+    link.aiSummary.keyTakeaways || [],
+    link.title,
+    link.aiSummary.tldr
+  );
+
   const colorStyles = category
     ? CATEGORY_COLORS[category.color] || CATEGORY_COLORS.purple
     : CATEGORY_COLORS.purple;
@@ -175,105 +187,82 @@ export const LinkCard: React.FC<LinkCardProps> = ({
             {link.aiSummary.tldr}
           </p>
 
-          {/* Direct On-Screen Phone Banner */}
-          {link.aiSummary.contacts?.phoneNumbers &&
-            link.aiSummary.contacts.phoneNumbers.length > 0 && (
-              <div className="mt-2.5 p-2 rounded-xl bg-emerald-950/50 border border-emerald-500/40 flex items-center justify-between gap-2 shadow-sm">
-                <a
-                  href={`tel:${link.aiSummary.contacts.phoneNumbers[0].replace(/\s+/g, "")}`}
-                  onClick={(e) => e.stopPropagation()}
-                  className="flex items-center gap-1.5 text-xs text-emerald-300 font-mono font-bold hover:underline hover:text-emerald-200"
-                  title="Direct Call"
+          {/* Direct On-Screen Phone Banner (Single canonical deduplicated phone) */}
+          {phoneNumbers.length > 0 && (
+            <div className="mt-2.5 p-2 rounded-xl bg-emerald-950/50 border border-emerald-500/40 flex items-center justify-between gap-2 shadow-sm">
+              <a
+                href={`tel:${phoneNumbers[0].replace(/\s+/g, "")}`}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1.5 text-xs text-emerald-300 font-mono font-bold hover:underline hover:text-emerald-200"
+                title="Direct Call"
+              >
+                <PhoneCall className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span>{phoneNumbers[0]}</span>
+              </a>
+              <div className="flex items-center gap-1">
+                {(() => {
+                  const digits = phoneNumbers[0].replace(/\D/g, "");
+                  const waDigits = digits.startsWith("0")
+                    ? "91" + digits.slice(1)
+                    : digits.length === 10
+                    ? "91" + digits
+                    : digits;
+                  return (
+                    <a
+                      href={`https://wa.me/${waDigits}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 text-emerald-200 font-semibold border border-emerald-500/30"
+                      title="Chat on WhatsApp"
+                    >
+                      WhatsApp
+                    </a>
+                  );
+                })()}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigator.clipboard.writeText(phoneNumbers[0]);
+                    setCopiedPhone(true);
+                    setTimeout(() => setCopiedPhone(false), 2000);
+                  }}
+                  className="text-[10px] px-1.5 py-0.5 rounded glass-button text-emerald-300 hover:text-white"
                 >
-                  <PhoneCall className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span>{link.aiSummary.contacts.phoneNumbers[0]}</span>
-                </a>
-                <div className="flex items-center gap-1">
-                  {(() => {
-                    const digits = link.aiSummary.contacts.phoneNumbers[0].replace(/\D/g, "");
-                    const waDigits = digits.startsWith("0")
-                      ? "91" + digits.slice(1)
-                      : digits.length === 10
-                      ? "91" + digits
-                      : digits;
-                    return (
-                      <a
-                        href={`https://wa.me/${waDigits}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 text-emerald-200 font-semibold border border-emerald-500/30"
-                        title="Chat on WhatsApp"
-                      >
-                        WhatsApp
-                      </a>
-                    );
-                  })()}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      navigator.clipboard.writeText(link.aiSummary.contacts!.phoneNumbers![0]);
-                      alert(`Copied phone: ${link.aiSummary.contacts!.phoneNumbers![0]}`);
-                    }}
-                    className="text-[10px] px-1.5 py-0.5 rounded glass-button text-emerald-300 hover:text-white"
-                  >
-                    Copy
-                  </button>
-                </div>
+                  {copiedPhone ? "Copied!" : "Copy"}
+                </button>
               </div>
-            )}
+            </div>
+          )}
 
-          {/* Key Takeaways preview */}
-          {link.aiSummary.keyTakeaways && link.aiSummary.keyTakeaways.length > 0 && (
-            <div className="mt-3 pt-2.5 border-t border-white/5 space-y-2">
-              {link.aiSummary.keyTakeaways.slice(0, 3).map((point, idx) => {
-                const isContact =
-                  point.includes("📞") ||
-                  point.toLowerCase().includes("contact") ||
-                  point.toLowerCase().includes("phone:");
-
-                const isAbout =
-                  !isContact &&
-                  (idx === 0 ||
-                    point.includes("Video Focus") ||
-                    point.includes("What it's about") ||
-                    point.includes("Topic /") ||
-                    point.includes("Project Focus"));
-
-                return (
-                  <div
-                    key={idx}
-                    className={`flex items-start gap-1.5 text-[11px] leading-relaxed ${
-                      isContact
-                        ? "p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-200 font-semibold"
-                        : isAbout
-                        ? "p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-200 font-medium"
-                        : "text-slate-400 pl-1"
-                    }`}
-                  >
-                    {!isAbout && !isContact && (
-                      <span className="text-cyan-400 font-bold shrink-0 mt-0.5">•</span>
-                    )}
-                    <span className="line-clamp-2">{point}</span>
-                  </div>
-                );
-              })}
+          {/* Key Takeaways preview (clean, non-repeating) */}
+          {displayTakeaways.length > 0 && (
+            <div className="mt-3 pt-2.5 border-t border-white/5 space-y-1.5">
+              {displayTakeaways.slice(0, 2).map((point, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-300/85"
+                >
+                  <span className="text-cyan-400 font-bold shrink-0 mt-0.5">•</span>
+                  <span className="line-clamp-2">{point}</span>
+                </div>
+              ))}
             </div>
           )}
 
           {/* Prompt to add contact if none exists */}
-          {(!link.aiSummary.contacts?.phoneNumbers ||
-            link.aiSummary.contacts.phoneNumbers.length === 0) && (
-            <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400 bg-white/[0.02] hover:bg-white/[0.05] px-2.5 py-1.5 rounded-xl border border-dashed border-white/10 transition-colors">
-              <span className="flex items-center gap-1 text-[10px]">
-                <PhoneCall className="w-3 h-3 text-slate-500" />
-                <span>No contact extracted</span>
-              </span>
-              <span className="text-[10px] text-cyan-400 font-semibold hover:text-cyan-300">
-                + Add Phone / Details
-              </span>
-            </div>
-          )}
+          {phoneNumbers.length === 0 &&
+            (!link.aiSummary.contacts?.emails || link.aiSummary.contacts.emails.length === 0) && (
+              <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400 bg-white/[0.02] hover:bg-white/[0.05] px-2.5 py-1.5 rounded-xl border border-dashed border-white/10 transition-colors">
+                <span className="flex items-center gap-1 text-[10px]">
+                  <PhoneCall className="w-3 h-3 text-slate-500" />
+                  <span>No contact extracted</span>
+                </span>
+                <span className="text-[10px] text-cyan-400 font-semibold hover:text-cyan-300">
+                  + Add Phone / Details
+                </span>
+              </div>
+            )}
         </div>
 
         {/* Tags */}

@@ -9,6 +9,40 @@ export function normalizeUrl(input: string): string {
   return url;
 }
 
+export function deduplicatePhoneNumbers(phones: string[]): string[] {
+  if (!phones || phones.length === 0) return [];
+  const seenDigits = new Set<string>();
+  const result: string[] = [];
+
+  for (const raw of phones) {
+    const trimmed = raw.replace(/[.,;:)\]]+$/, "").trim();
+    if (!trimmed) continue;
+    const digits = trimmed.replace(/\D/g, "");
+    if (digits.length < 8 || digits.length > 15) continue;
+
+    // Filter out typical years (2020-2029) if 8 digits or less
+    if (/^202[0-9]/.test(digits) && digits.length <= 8) continue;
+    // Filter out dimension resolutions (e.g. 1920x1080)
+    if (/^\d{3,4}[xX]\d{3,4}$/.test(trimmed)) continue;
+
+    // Deduplicate by the last 10 significant digits (unifies 99250..., +91 99250..., 099250...)
+    const key = digits.length >= 10 ? digits.slice(-10) : digits;
+    if (seenDigits.has(key)) continue;
+    seenDigits.add(key);
+
+    // Format clean standard representation:
+    if (digits.length === 10 && /^[6-9]/.test(digits)) {
+      result.push(trimmed.includes("+91") ? trimmed : `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`);
+    } else if (digits.length === 12 && digits.startsWith("91") && /^[6-9]/.test(digits.slice(2))) {
+      result.push(`+91 ${digits.slice(2, 7)} ${digits.slice(7)}`);
+    } else {
+      result.push(trimmed);
+    }
+  }
+
+  return result.slice(0, 6);
+}
+
 export function extractRegexContacts(text: string): {
   phoneNumbers: string[];
   emails: string[];
@@ -54,23 +88,8 @@ export function extractRegexContacts(text: string): {
   const rawPhones = text.match(generalPhoneRegex) || [];
   rawPhones.forEach((p) => foundPhones.push(p.trim()));
 
-  // Deduplicate and filter out timestamps, years, and dimension noise
-  const validPhones = Array.from(
-    new Set(
-      foundPhones
-        .map((p) => p.replace(/[.,;:)\]]+$/, "").trim())
-        .filter((p) => {
-          const digits = p.replace(/\D/g, "");
-          // Valid phone numbers are usually between 8 and 15 digits
-          if (digits.length < 8 || digits.length > 15) return false;
-          // Filter out typical false positives like timestamps or years (e.g. 2024, 2025, 2026)
-          const isYear = /^202[0-9]/.test(digits) && digits.length <= 8;
-          // Filter out dimensions like 1920x1080
-          const isDimension = /^\d{3,4}[xX]\d{3,4}$/.test(p);
-          return !isYear && !isDimension;
-        })
-    )
-  ).slice(0, 8);
+  // Deduplicate and canonicalize all phone numbers
+  const validPhones = deduplicatePhoneNumbers(foundPhones);
 
   // 6. URLs and social links
   const urlRegex = /https?:\/\/[^\s<>"]+/g;

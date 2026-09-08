@@ -4,6 +4,8 @@ import React, { useState } from "react";
 import { AnalyzedLink, Category } from "@/types";
 import { CATEGORY_COLORS } from "@/lib/colorTheme";
 import { CategoryIcon } from "./Icons";
+import { cleanAndDeduplicateTakeaways } from "@/lib/ai";
+import { deduplicatePhoneNumbers } from "@/lib/scraper";
 import {
   X,
   ExternalLink,
@@ -74,8 +76,23 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
     ? CATEGORY_COLORS[category.color] || CATEGORY_COLORS.purple
     : CATEGORY_COLORS.purple;
 
+  const phoneNumbers = deduplicatePhoneNumbers(link.aiSummary.contacts?.phoneNumbers || []);
+  const displayTakeaways = cleanAndDeduplicateTakeaways(
+    link.aiSummary.keyTakeaways || [],
+    link.title,
+    link.aiSummary.tldr
+  );
+
   const handleCopySummary = async () => {
-    const formatted = `# ${link.title}\nSource: ${link.url}\n\n## TL;DR\n${link.aiSummary.tldr}\n\n## Key Takeaways\n${link.aiSummary.keyTakeaways.map((k) => `- ${k}`).join("\n")}\n\n## Deep Dive\n${link.aiSummary.detailedSummary}\n\n## Actionable Insights\n${link.aiSummary.actionableInsights.map((a) => `- ${a}`).join("\n")}`;
+    let contactText = "";
+    if (phoneNumbers.length > 0 || (link.aiSummary.contacts?.emails?.length || 0) > 0) {
+      const items: string[] = [];
+      if (phoneNumbers.length > 0) items.push(`Phone: ${phoneNumbers.join(", ")}`);
+      if (link.aiSummary.contacts?.emails?.length) items.push(`Email: ${link.aiSummary.contacts.emails.join(", ")}`);
+      if (link.aiSummary.contacts?.addressOrLocation) items.push(`Address: ${link.aiSummary.contacts.addressOrLocation}`);
+      contactText = `\n## Contacts\n${items.map((i) => `- ${i}`).join("\n")}\n`;
+    }
+    const formatted = `# ${link.title}\nSource: ${link.url}\n\n## TL;DR\n${link.aiSummary.tldr}${contactText}\n## Key Takeaways\n${displayTakeaways.map((k) => `- ${k}`).join("\n")}\n\n## Deep Dive\n${link.aiSummary.detailedSummary}\n\n## Actionable Insights\n${link.aiSummary.actionableInsights.map((a) => `- ${a}`).join("\n")}`;
     try {
       await navigator.clipboard.writeText(formatted);
       setCopiedSummary(true);
@@ -112,14 +129,19 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
   };
 
   const handleSaveCustomContact = () => {
-    const phones = editPhone
+    const rawPhones = editPhone
       .split(/[,\n]/)
       .map((p) => p.trim())
       .filter(Boolean);
-    const emails = editEmail
-      .split(/[,\n]/)
-      .map((e) => e.trim())
-      .filter(Boolean);
+    const phones = deduplicatePhoneNumbers(rawPhones);
+    const emails = Array.from(
+      new Set(
+        editEmail
+          .split(/[,\n]/)
+          .map((e) => e.trim().toLowerCase())
+          .filter(Boolean)
+      )
+    );
 
     const updatedContacts = {
       phoneNumbers: phones,
@@ -130,23 +152,12 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
       pricingOrOffers: link.aiSummary.contacts?.pricingOrOffers,
     };
 
-    const newKeyTakeaways = [...link.aiSummary.keyTakeaways];
-    if (phones.length > 0 || emails.length > 0 || editAddress.trim()) {
-      const contactPieces: string[] = [];
-      if (phones.length > 0) contactPieces.push(`Phone: ${phones.join(", ")}`);
-      if (emails.length > 0) contactPieces.push(`Email: ${emails.join(", ")}`);
-      if (editAddress.trim()) contactPieces.push(`Location: ${editAddress.trim()}`);
-      const contactBullet = `📞 Contact & On-Screen Details: ${contactPieces.join(" • ")}`;
-
-      const existingContactIdx = newKeyTakeaways.findIndex(
-        (k) => k.includes("📞") || k.includes("Contact & On-Screen")
-      );
-      if (existingContactIdx !== -1) {
-        newKeyTakeaways[existingContactIdx] = contactBullet;
-      } else {
-        newKeyTakeaways.unshift(contactBullet);
-      }
-    }
+    // Clean takeaways of any legacy contact bullets
+    const cleanedTakeaways = cleanAndDeduplicateTakeaways(
+      link.aiSummary.keyTakeaways,
+      link.title,
+      link.aiSummary.tldr
+    );
 
     const updatedLink: AnalyzedLink = {
       ...link,
@@ -154,7 +165,7 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
         ...link.aiSummary,
         contacts: updatedContacts,
         spokenOrOnScreenContent: editSpoken.trim() || undefined,
-        keyTakeaways: newKeyTakeaways,
+        keyTakeaways: cleanedTakeaways,
       },
       updatedAt: Date.now(),
     };
@@ -413,7 +424,7 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
           {/* Prompt banner to add contacts if none exist */}
           {!isEditingContact &&
             (!link.aiSummary.contacts ||
-              ((link.aiSummary.contacts.phoneNumbers?.length || 0) === 0 &&
+              (phoneNumbers.length === 0 &&
                 (link.aiSummary.contacts.emails?.length || 0) === 0 &&
                 !link.aiSummary.contacts.addressOrLocation)) && (
               <div className="p-3.5 rounded-2xl border border-dashed border-cyan-500/30 bg-cyan-950/20 flex flex-col sm:flex-row items-center justify-between gap-3">
@@ -450,7 +461,7 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
 
           {/* Section: Extracted Contacts & On-Screen Details */}
           {link.aiSummary.contacts &&
-            ((link.aiSummary.contacts.phoneNumbers?.length || 0) > 0 ||
+            (phoneNumbers.length > 0 ||
               (link.aiSummary.contacts.emails?.length || 0) > 0 ||
               link.aiSummary.contacts.addressOrLocation ||
               link.aiSummary.contacts.pricingOrOffers) && (
@@ -471,7 +482,7 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   {/* Phone Numbers with direct tel: and WhatsApp link */}
-                  {link.aiSummary.contacts.phoneNumbers?.map((phone, i) => {
+                  {phoneNumbers.map((phone, i) => {
                     const digits = phone.replace(/\D/g, "");
                     const waDigits = digits.startsWith("0")
                       ? "91" + digits.slice(1)
@@ -506,7 +517,6 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
                           <button
                             onClick={() => {
                               navigator.clipboard.writeText(phone);
-                              alert(`Copied ${phone} to clipboard!`);
                             }}
                             className="text-[10px] px-2 py-0.5 rounded-md glass-button text-emerald-300 hover:text-white"
                           >
@@ -535,7 +545,6 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
                       <button
                         onClick={() => {
                           navigator.clipboard.writeText(email);
-                          alert(`Copied ${email} to clipboard!`);
                         }}
                         className="text-[10px] px-2 py-1 rounded-md glass-button text-cyan-300 hover:text-white shrink-0"
                       >
@@ -577,43 +586,24 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
           )}
 
           {/* Section 2: Key Takeaways */}
-          {link.aiSummary.keyTakeaways && link.aiSummary.keyTakeaways.length > 0 && (
+          {displayTakeaways.length > 0 && (
             <div className="space-y-3">
               <h3 className="text-xs uppercase font-bold tracking-wider text-slate-400 flex items-center gap-2">
                 <CheckCircle className="w-4 h-4 text-emerald-400" />
                 <span>Key Takeaways & Core Points</span>
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {link.aiSummary.keyTakeaways.map((point, index) => {
-                  const isHighlight =
-                    index === 0 ||
-                    point.includes("Video Focus") ||
-                    point.includes("What it's about") ||
-                    point.includes("Project Focus") ||
-                    point.includes("Topic /");
-
-                  return (
-                    <div
-                      key={index}
-                      className={`p-3.5 rounded-xl flex items-start gap-2.5 text-xs leading-relaxed transition-all ${
-                        isHighlight
-                          ? "sm:col-span-2 bg-gradient-to-r from-purple-500/15 via-indigo-500/10 to-cyan-500/15 border border-purple-500/30 text-purple-100 font-medium shadow-md shadow-purple-500/10"
-                          : "glass-panel-subtle border border-white/5 text-slate-200"
-                      }`}
-                    >
-                      <span
-                        className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 font-bold text-[10px] ${
-                          isHighlight
-                            ? "bg-purple-500/30 text-purple-200 ring-1 ring-purple-400/40"
-                            : "bg-cyan-500/20 text-cyan-300"
-                        }`}
-                      >
-                        {index + 1}
-                      </span>
-                      <span>{point}</span>
-                    </div>
-                  );
-                })}
+                {displayTakeaways.map((point, index) => (
+                  <div
+                    key={index}
+                    className="p-3.5 rounded-xl flex items-start gap-2.5 text-xs leading-relaxed transition-all glass-panel-subtle border border-white/5 text-slate-200"
+                  >
+                    <span className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 font-bold text-[10px] bg-cyan-500/20 text-cyan-300">
+                      {index + 1}
+                    </span>
+                    <span>{point}</span>
+                  </div>
+                ))}
               </div>
             </div>
           )}
