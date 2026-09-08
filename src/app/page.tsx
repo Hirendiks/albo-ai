@@ -42,21 +42,93 @@ import {
   Star,
 } from "lucide-react";
 
-// Robust URL extraction for mobile shares (YouTube, Chrome, X/Twitter, TikTok, Instagram, etc.)
-function extractUrlFromShare(params: URLSearchParams): string | null {
-  const candidates = [
-    params.get("url"),
-    params.get("text"),
-    params.get("title"),
-  ];
-
-  for (const val of candidates) {
-    if (!val) continue;
-    const match = val.match(/https?:\/\/[^\s"'<>]+/i);
-    if (match) {
-      return match[0].replace(/[.,;:!?)]+$/, "");
-    }
+function cleanExtractedUrl(raw: string): string {
+  let u = raw.trim();
+  // Remove leading/trailing punctuation and quotes
+  u = u.replace(/^[\s"'(\[<]+|[\s"'()\]>.,;:!?]+$/g, "");
+  // If starts with www. or known domain without protocol, prepend https://
+  if (
+    u.startsWith("www.") ||
+    /^(?:instagram\.com|tiktok\.com|x\.com|twitter\.com|facebook\.com|linkedin\.com|reddit\.com|threads\.net|youtube\.com|youtu\.be|fb\.watch|pin\.it|vt\.tiktok\.com|vm\.tiktok\.com)\//i.test(u)
+  ) {
+    u = `https://${u}`;
   }
+  return u;
+}
+
+function extractUrlFromText(text: string | null | undefined): string | null {
+  if (!text) return null;
+  let decoded = text;
+  try {
+    decoded = decodeURIComponent(text);
+  } catch {
+    decoded = text;
+  }
+
+  // 1. Look for http(s) URL
+  const httpMatch = decoded.match(/https?:\/\/[^\s"'<>]+/i);
+  if (httpMatch) {
+    return cleanExtractedUrl(httpMatch[0]);
+  }
+
+  // 2. Look for www. domain URL
+  const wwwMatch = decoded.match(/www\.[a-zA-Z0-9-]+\.[a-zA-Z]{2,}[^\s"'<>]*/i);
+  if (wwwMatch) {
+    return cleanExtractedUrl(`https://${wwwMatch[0]}`);
+  }
+
+  // 3. Look for known shortlinks or naked social links (vt.tiktok.com, youtu.be, pin.it, fb.watch, instagram.com, etc.)
+  const socialMatch = decoded.match(
+    /(?:(?:vt|vm)\.tiktok\.com|youtu\.be|pin\.it|fb\.watch|(?:instagram|tiktok|x|twitter|facebook|linkedin|reddit|threads|spotify)\.com)[^\s"'<>]*/i
+  );
+  if (socialMatch) {
+    return cleanExtractedUrl(`https://${socialMatch[0]}`);
+  }
+
+  return null;
+}
+
+function extractUrlFromAnySource(): string | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const urlObj = new URL(window.location.href);
+    const params = urlObj.searchParams;
+
+    // 1. Check known params: "url", "text", "title", "link", "share", "uri", "target"
+    const priorityKeys = ["url", "text", "link", "share", "uri", "target", "title"];
+    for (const k of priorityKeys) {
+      const val = params.get(k);
+      const parsed = extractUrlFromText(val);
+      if (parsed) return parsed;
+    }
+
+    // 2. Check all other query params
+    let foundInParams: string | null = null;
+    params.forEach((val) => {
+      if (!foundInParams) {
+        const parsed = extractUrlFromText(val);
+        if (parsed) foundInParams = parsed;
+      }
+    });
+    if (foundInParams) return foundInParams;
+
+    // 3. Check raw search string
+    if (urlObj.search) {
+      const parsed = extractUrlFromText(urlObj.search);
+      if (parsed) return parsed;
+    }
+
+    // 4. Check raw hash
+    if (urlObj.hash) {
+      const parsed = extractUrlFromText(urlObj.hash);
+      if (parsed) return parsed;
+    }
+  } catch {
+    const parsed = extractUrlFromText(window.location.search);
+    if (parsed) return parsed;
+  }
+
   return null;
 }
 
@@ -150,17 +222,37 @@ export default function HomePage() {
         setLinks(getStoredLinks(null));
       });
 
-    // Check for incoming share targets via URL query params (?url=..., ?text=..., ?title=...)
-    if (typeof window !== "undefined") {
-      const params = new URLSearchParams(window.location.search);
-      const parsedUrl = extractUrlFromShare(params);
-      if (parsedUrl) {
-        setInlineUrl(parsedUrl);
+    // Universal check for incoming share targets across all mobile apps & browsers
+    const checkIncomingShare = () => {
+      if (typeof window === "undefined") return;
+      const detectedUrl = extractUrlFromAnySource();
+      if (detectedUrl) {
+        setInlineUrl(detectedUrl);
         setIsAddModalOpen(true);
         // Clean URL query params from address bar so refresh doesn't pop up again
         window.history.replaceState({}, document.title, window.location.pathname);
       }
-    }
+    };
+
+    // Check immediately on initial mount
+    checkIncomingShare();
+
+    // Listen to focus and visibilitychange (triggers when user shares while PWA is already open in background)
+    const handleResume = () => {
+      if (document.visibilityState === "visible") {
+        checkIncomingShare();
+      }
+    };
+
+    window.addEventListener("visibilitychange", handleResume);
+    window.addEventListener("focus", checkIncomingShare);
+    window.addEventListener("popstate", checkIncomingShare);
+
+    return () => {
+      window.removeEventListener("visibilitychange", handleResume);
+      window.removeEventListener("focus", checkIncomingShare);
+      window.removeEventListener("popstate", checkIncomingShare);
+    };
   }, []);
 
   // Handle user signing in: switches to personal blank library
