@@ -140,7 +140,62 @@ export async function scrapeUrl(
     }
   }
 
-  // 4. Spotify oEmbed
+  // 4. Instagram & Threads handler (Extracts shortcode, creator, Microlink preview thumbnail, and caption)
+  if (isInstagram) {
+    try {
+      const isReel = parsedUrl.pathname.includes("/reel/") || parsedUrl.pathname.includes("/reels/");
+      const isPost = parsedUrl.pathname.includes("/p/");
+      const shortcodeMatch = parsedUrl.pathname.match(/\/(?:p|reel|reels)\/([a-zA-Z0-9_-]+)/);
+      const shortcode = shortcodeMatch ? shortcodeMatch[1] : "";
+
+      const usernameMatch = parsedUrl.pathname.match(/^\/([a-zA-Z0-9_.]+)(?:\/(?:p|reel|reels)\/|$)/);
+      const username = usernameMatch && !["p", "reel", "reels", "stories", "explore"].includes(usernameMatch[1])
+        ? `@${usernameMatch[1]}`
+        : "";
+
+      let mlImage: string | undefined = undefined;
+      let mlTitle: string | undefined = undefined;
+      let mlDesc: string | undefined = undefined;
+
+      try {
+        const mlRes = await fetch(`https://api.microlink.io?url=${encodeURIComponent(url)}`, {
+          signal: AbortSignal.timeout(5000),
+        });
+        if (mlRes.ok) {
+          const mlData = await mlRes.json();
+          if (mlData.data) {
+            if (mlData.data.image?.url) {
+              mlImage = mlData.data.image.url;
+            }
+            if (mlData.data.title && !/^(instagram|threads)$/i.test(mlData.data.title.trim())) {
+              mlTitle = mlData.data.title;
+            }
+            if (mlData.data.description && !/^(instagram|threads)$/i.test(mlData.data.description.trim())) {
+              mlDesc = mlData.data.description;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Instagram Microlink attempt failed:", e);
+      }
+
+      const typeLabel = isReel ? "Instagram Reel" : isPost ? "Instagram Post" : "Instagram Profile";
+      const authorDisplay = username || (onScreenNotes && onScreenNotes.includes("@") ? onScreenNotes.match(/@[a-zA-Z0-9_.]+/)?.[0] : undefined);
+      const displayTitle = mlTitle || (authorDisplay ? `${typeLabel} by ${authorDisplay}` : `${typeLabel} (${shortcode || 'Media'})`);
+      const displayDesc = mlDesc || onScreenNotes || `${typeLabel} on Instagram${authorDisplay ? ` by ${authorDisplay}` : ''}.`;
+
+      oembedData = {
+        title: displayTitle,
+        author_name: authorDisplay || "Instagram Creator",
+        thumbnail_url: mlImage,
+        description: displayDesc,
+      };
+    } catch (err) {
+      console.warn("Instagram metadata extraction failed:", err);
+    }
+  }
+
+  // 5. Spotify oEmbed
   if (isSpotify) {
     try {
       const spRes = await fetch(`https://open.spotify.com/oembed?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(4000) });

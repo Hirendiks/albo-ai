@@ -88,48 +88,69 @@ function extractUrlFromText(text: string | null | undefined): string | null {
   return null;
 }
 
-function extractUrlFromAnySource(): string | null {
+interface ExtractedShareData {
+  url: string;
+  caption?: string;
+}
+
+function extractShareDataFromAnySource(): ExtractedShareData | null {
   if (typeof window === "undefined") return null;
 
   try {
     const urlObj = new URL(window.location.href);
     const params = urlObj.searchParams;
 
-    // 1. Check known params: "url", "text", "title", "link", "share", "uri", "target"
-    const priorityKeys = ["url", "text", "link", "share", "uri", "target", "title"];
-    for (const k of priorityKeys) {
-      const val = params.get(k);
-      const parsed = extractUrlFromText(val);
-      if (parsed) return parsed;
+    const rawUrl = params.get("url") || "";
+    const rawText = params.get("text") || "";
+    const rawTitle = params.get("title") || "";
+
+    // 1. Check priority params for a valid URL
+    let foundUrl: string | null =
+      extractUrlFromText(rawUrl) ||
+      extractUrlFromText(rawText) ||
+      extractUrlFromText(rawTitle);
+
+    // 2. Check all other params
+    if (!foundUrl) {
+      params.forEach((val) => {
+        if (!foundUrl) {
+          const parsed = extractUrlFromText(val);
+          if (parsed) foundUrl = parsed;
+        }
+      });
     }
 
-    // 2. Check all other query params
-    let foundInParams: string | null = null;
-    params.forEach((val) => {
-      if (!foundInParams) {
-        const parsed = extractUrlFromText(val);
-        if (parsed) foundInParams = parsed;
+    // 3. Check raw search & hash
+    if (!foundUrl && urlObj.search) {
+      foundUrl = extractUrlFromText(urlObj.search);
+    }
+    if (!foundUrl && urlObj.hash) {
+      foundUrl = extractUrlFromText(urlObj.hash);
+    }
+
+    if (!foundUrl) return null;
+
+    // 4. Extract any caption or text shared alongside the link (strip the URL out)
+    let caption = "";
+    if (rawText) {
+      const textOnly = rawText.replace(foundUrl, "").replace(/https?:\/\/[^\s]+/gi, "").trim();
+      if (textOnly && textOnly.length > 2) {
+        caption = textOnly;
       }
-    });
-    if (foundInParams) return foundInParams;
-
-    // 3. Check raw search string
-    if (urlObj.search) {
-      const parsed = extractUrlFromText(urlObj.search);
-      if (parsed) return parsed;
+    }
+    if (!caption && rawTitle && !/^(instagram|youtube|tiktok|twitter|reddit|spotify)$/i.test(rawTitle.trim())) {
+      caption = rawTitle.trim();
     }
 
-    // 4. Check raw hash
-    if (urlObj.hash) {
-      const parsed = extractUrlFromText(urlObj.hash);
-      if (parsed) return parsed;
-    }
+    return {
+      url: foundUrl,
+      caption: caption || undefined,
+    };
   } catch {
     const parsed = extractUrlFromText(window.location.search);
-    if (parsed) return parsed;
+    if (parsed) return { url: parsed };
+    return null;
   }
-
-  return null;
 }
 
 export default function HomePage() {
@@ -155,8 +176,9 @@ export default function HomePage() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [detailModalLink, setDetailModalLink] = useState<AnalyzedLink | null>(null);
 
-  // Quick inline URL paste input
+  // Quick inline URL paste input & incoming shared caption
   const [inlineUrl, setInlineUrl] = useState("");
+  const [sharedNotes, setSharedNotes] = useState("");
 
   const categoriesSectionRef = useRef<HTMLDivElement>(null);
 
@@ -222,36 +244,94 @@ export default function HomePage() {
         setLinks(getStoredLinks(null));
       });
 
-    // Universal check for incoming share targets across all mobile apps & browsers
+    // Universal 5-layer incoming mobile share target handler
     const checkIncomingShare = () => {
       if (typeof window === "undefined") return;
-      const detectedUrl = extractUrlFromAnySource();
-      if (detectedUrl) {
-        setInlineUrl(detectedUrl);
+      let shareData = extractShareDataFromAnySource();
+      if (!shareData) {
+        try {
+          const cached = sessionStorage.getItem("ai_bookmark_pending_share");
+          if (cached) {
+            shareData = JSON.parse(cached);
+          }
+        } catch {}
+      }
+
+      if (shareData && shareData.url) {
+        setInlineUrl(shareData.url);
+        if (shareData.caption) {
+          setSharedNotes(shareData.caption);
+        }
         setIsAddModalOpen(true);
-        // Clean URL query params from address bar so refresh doesn't pop up again
-        window.history.replaceState({}, document.title, window.location.pathname);
+        try {
+          sessionStorage.removeItem("ai_bookmark_pending_share");
+          if (window.location.search) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        } catch {}
       }
     };
 
-    // Check immediately on initial mount
+    // Check immediately on initial mount with staggered retries for Android Webview Intent loading
     checkIncomingShare();
+    [60, 150, 300, 600, 1200].forEach((delay) => {
+      setTimeout(checkIncomingShare, delay);
+    });
 
-    // Listen to focus and visibilitychange (triggers when user shares while PWA is already open in background)
+    // Listen to focus and visibilitychange with staggered checks
     const handleResume = () => {
       if (document.visibilityState === "visible") {
-        checkIncomingShare();
+        [0, 80, 200, 450, 800, 1500].forEach((delay) => {
+          setTimeout(checkIncomingShare, delay);
+        });
       }
     };
 
     window.addEventListener("visibilitychange", handleResume);
-    window.addEventListener("focus", checkIncomingShare);
+    window.addEventListener("focus", handleResume);
     window.addEventListener("popstate", checkIncomingShare);
+
+    // Listen for broadcast messages from Service Worker (Web Share Target interception)
+    let bc: BroadcastChannel | null = null;
+    if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+      try {
+        bc = new BroadcastChannel("ai_bookmark_share");
+        bc.onmessage = (event) => {
+          if (event.data?.url) {
+            const data = extractShareDataFromAnySource() || { url: event.data.url, caption: event.data.text || event.data.title };
+            setInlineUrl(data.url);
+            if (data.caption) setSharedNotes(data.caption);
+            setIsAddModalOpen(true);
+          }
+        };
+      } catch {}
+    }
+
+    const handleSwMessage = (event: MessageEvent) => {
+      if (event.data?.type === "SHARED_TARGET") {
+        const raw = event.data.url || event.data.text || event.data.title;
+        const parsedUrl = extractUrlFromText(raw);
+        if (parsedUrl) {
+          const caption = (event.data.text || event.data.title || "").replace(parsedUrl, "").trim();
+          setInlineUrl(parsedUrl);
+          if (caption) setSharedNotes(caption);
+          setIsAddModalOpen(true);
+        }
+      }
+    };
+
+    if (typeof navigator !== "undefined" && navigator.serviceWorker) {
+      navigator.serviceWorker.addEventListener("message", handleSwMessage);
+    }
 
     return () => {
       window.removeEventListener("visibilitychange", handleResume);
-      window.removeEventListener("focus", checkIncomingShare);
+      window.removeEventListener("focus", handleResume);
       window.removeEventListener("popstate", checkIncomingShare);
+      if (bc) bc.close();
+      if (typeof navigator !== "undefined" && navigator.serviceWorker) {
+        navigator.serviceWorker.removeEventListener("message", handleSwMessage);
+      }
     };
   }, []);
 
@@ -939,9 +1019,11 @@ export default function HomePage() {
         selectedCategoryId={selectedCategoryId}
         apiKey={apiKey}
         initialUrl={inlineUrl}
+        initialNotes={sharedNotes}
         onClose={() => {
           setIsAddModalOpen(false);
           setInlineUrl("");
+          setSharedNotes("");
         }}
         onLinkAdded={handleLinkAdded}
         onCategoryAdded={handleAddCategory}

@@ -24,6 +24,7 @@ interface AddLinkModalProps {
   selectedCategoryId: string | null;
   apiKey: string;
   initialUrl?: string;
+  initialNotes?: string;
   onClose: () => void;
   onLinkAdded: (link: AnalyzedLink) => void;
   onCategoryAdded?: (cat: Category) => void;
@@ -47,6 +48,7 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
   selectedCategoryId,
   apiKey,
   initialUrl = "",
+  initialNotes = "",
   onClose,
   onLinkAdded,
   onCategoryAdded,
@@ -57,8 +59,8 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
       ? selectedCategoryId
       : categories[0]?.id || ""
   );
-  const [notes, setNotes] = useState("");
-  const [onScreenNotes, setOnScreenNotes] = useState("");
+  const [notes, setNotes] = useState(initialNotes);
+  const [onScreenNotes, setOnScreenNotes] = useState(initialNotes);
 
   // Inline category creation state
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
@@ -70,6 +72,23 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
       setUrl(initialUrl);
     }
   }, [initialUrl]);
+
+  React.useEffect(() => {
+    if (initialNotes) {
+      setNotes(initialNotes);
+      setOnScreenNotes(initialNotes);
+    }
+  }, [initialNotes]);
+
+  React.useEffect(() => {
+    if ((!targetCategory || !categories.some(c => c.id === targetCategory)) && categories.length > 0) {
+      setTargetCategory(
+        selectedCategoryId && selectedCategoryId !== "favorites-filter"
+          ? selectedCategoryId
+          : categories[0]?.id || ""
+      );
+    }
+  }, [categories, selectedCategoryId, targetCategory]);
   const [stage, setStage] = useState<Stage>("idle");
   const [errorMessage, setErrorMessage] = useState("");
 
