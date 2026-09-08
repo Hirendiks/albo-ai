@@ -6,6 +6,8 @@ import { ViewFilter } from "@/types";
 import { UserProfile } from "@/types/auth";
 
 interface BottomNavProps {
+  activeView: "categories" | "bookmarks";
+  onViewChange: (view: "categories" | "bookmarks") => void;
   currentFilter: ViewFilter;
   onFilterChange: (filter: ViewFilter) => void;
   onOpenAddModal: () => void;
@@ -18,6 +20,8 @@ interface BottomNavProps {
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
+  activeView,
+  onViewChange,
   currentFilter,
   onFilterChange,
   onOpenAddModal,
@@ -33,22 +37,27 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       <div className="flex items-center justify-around max-w-md mx-auto relative">
         {/* All Links */}
         <button
-          onClick={() => onFilterChange("all")}
+          onClick={() => {
+            onViewChange("bookmarks");
+            onFilterChange("all");
+          }}
           className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
-            currentFilter === "all"
+            activeView === "bookmarks" && currentFilter === "all"
               ? "text-cyan-400 font-semibold"
               : "text-slate-400 hover:text-slate-200"
           }`}
         >
           <LayoutGrid className="w-5 h-5" />
-          <span className="text-[10px]">Links</span>
+          <span className="text-[10px]">Bookmarks</span>
         </button>
 
         {/* Categories trigger */}
         <button
-          onClick={onScrollToCategories}
+          onClick={() => {
+            onViewChange("categories");
+          }}
           className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all ${
-            currentFilter === "category"
+            activeView === "categories"
               ? "text-purple-400 font-semibold"
               : "text-slate-400 hover:text-slate-200"
           }`}
@@ -72,9 +81,12 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
         {/* Favorites */}
         <button
-          onClick={() => onFilterChange("favorites")}
+          onClick={() => {
+            onViewChange("bookmarks");
+            onFilterChange("favorites");
+          }}
           className={`flex flex-col items-center gap-1 py-1 px-3 rounded-xl transition-all relative ${
-            currentFilter === "favorites"
+            activeView === "bookmarks" && currentFilter === "favorites"
               ? "text-amber-400 font-semibold"
               : "text-slate-400 hover:text-slate-200"
           }`}

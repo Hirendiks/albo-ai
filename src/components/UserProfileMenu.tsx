@@ -109,7 +109,7 @@ export const UserProfileMenu: React.FC<UserProfileMenuProps> = ({
 
       {/* Dropdown Panel */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-72 rounded-2xl glass-panel-elevated p-4 z-50 shadow-2xl border border-white/20 animate-in fade-in zoom-in-95 duration-150 space-y-3.5">
+        <div className="absolute right-0 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-3xl bg-slate-950/98 backdrop-blur-3xl p-5 z-50 shadow-2xl shadow-black border border-white/20 ring-1 ring-white/10 animate-in fade-in zoom-in-95 duration-150 space-y-4">
           {/* User Details Banner */}
           <div className="flex items-center gap-3 pb-3 border-b border-white/10">
             <div className="w-10 h-10 rounded-xl overflow-hidden bg-gradient-to-tr from-purple-500 to-cyan-400 p-[1.5px] shrink-0">

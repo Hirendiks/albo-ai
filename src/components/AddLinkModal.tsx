@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Category, AnalyzedLink } from "@/types";
+import { Category, AnalyzedLink, CategoryColor } from "@/types";
 import { CategoryIcon } from "./Icons";
 import { CATEGORY_COLORS } from "@/lib/colorTheme";
 import {
@@ -14,6 +14,8 @@ import {
   AlertCircle,
   Folder,
   FileText,
+  Plus,
+  FolderPlus,
 } from "lucide-react";
 
 interface AddLinkModalProps {
@@ -24,9 +26,20 @@ interface AddLinkModalProps {
   initialUrl?: string;
   onClose: () => void;
   onLinkAdded: (link: AnalyzedLink) => void;
+  onCategoryAdded?: (cat: Category) => void;
 }
 
 type Stage = "idle" | "scraping" | "analyzing" | "saving" | "success" | "error";
+
+const COLOR_OPTIONS: CategoryColor[] = [
+  "purple",
+  "cyan",
+  "emerald",
+  "rose",
+  "amber",
+  "blue",
+  "indigo",
+];
 
 export const AddLinkModal: React.FC<AddLinkModalProps> = ({
   isOpen,
@@ -36,6 +49,7 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
   initialUrl = "",
   onClose,
   onLinkAdded,
+  onCategoryAdded,
 }) => {
   const [url, setUrl] = useState(initialUrl);
   const [targetCategory, setTargetCategory] = useState(
@@ -46,6 +60,11 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
   const [notes, setNotes] = useState("");
   const [onScreenNotes, setOnScreenNotes] = useState("");
 
+  // Inline category creation state
+  const [isCreatingCategory, setIsCreatingCategory] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+  const [newCatColor, setNewCatColor] = useState<CategoryColor>("purple");
+
   React.useEffect(() => {
     if (initialUrl) {
       setUrl(initialUrl);
@@ -55,6 +74,24 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
   const [errorMessage, setErrorMessage] = useState("");
 
   if (!isOpen) return null;
+
+  const handleCreateInlineCategory = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newCatName.trim()) return;
+    const newCat: Category = {
+      id: "cat-" + Date.now(),
+      name: newCatName.trim(),
+      color: newCatColor,
+      icon: "Folder",
+      createdAt: Date.now(),
+    };
+    onCategoryAdded?.(newCat);
+    setTargetCategory(newCat.id);
+    setNewCatName("");
+    setIsCreatingCategory(false);
+  };
+
+  const selectedCategoryObj = categories.find((c) => c.id === targetCategory);
 
   const handlePasteClipboard = async () => {
     try {
@@ -71,7 +108,7 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim()) return;
+    if (!url.trim() || !targetCategory) return;
 
     setStage("scraping");
     setErrorMessage("");
@@ -115,6 +152,8 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
     setUrl("");
     setNotes("");
     setOnScreenNotes("");
+    setIsCreatingCategory(false);
+    setNewCatName("");
     setStage("idle");
     setErrorMessage("");
     onClose();
@@ -127,7 +166,7 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
       {/* Frosted Backdrop */}
       <div
         onClick={!isLoading ? handleClose : undefined}
-        className="fixed inset-0 bg-slate-950/80 backdrop-blur-md transition-opacity"
+        className="fixed inset-0 bg-slate-950/85 backdrop-blur-md transition-opacity"
       />
 
       {/* Modal Dialog */}
@@ -142,10 +181,10 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
             </div>
             <div>
               <h2 className="text-base sm:text-lg font-bold text-white">
-                Save & Analyze Link
+                Save & Analyze Bookmark
               </h2>
               <p className="text-xs text-slate-400">
-                AI extracts metadata, generates TL;DR & key takeaways
+                Choose category & synthesize link with AI
               </p>
             </div>
           </div>
@@ -161,12 +200,157 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
         </div>
 
         {/* Content Form */}
-        <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-          {/* URL Input with Paste button */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-              Target Link / URL
-            </label>
+        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+          {/* STEP 1: CATEGORY FIRST SELECTION / CREATION */}
+          <div className="p-3.5 rounded-2xl bg-white/[0.04] border border-white/10 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-[10px] font-mono font-bold">
+                  1
+                </span>
+                <span>Select or Create Category</span>
+              </label>
+              {!isCreatingCategory && (
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingCategory(true)}
+                  className="flex items-center gap-1 text-xs text-cyan-400 hover:text-cyan-300 font-semibold transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>New Category</span>
+                </button>
+              )}
+            </div>
+
+            {/* Inline Category Creator */}
+            {isCreatingCategory ? (
+              <div className="p-3 rounded-xl bg-slate-900/95 border border-cyan-500/30 space-y-2.5 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between text-xs text-slate-300 font-medium">
+                  <span className="flex items-center gap-1.5 text-cyan-300">
+                    <FolderPlus className="w-3.5 h-3.5" />
+                    <span>Create New Category</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCreatingCategory(false);
+                      setNewCatName("");
+                    }}
+                    className="text-slate-400 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <input
+                  type="text"
+                  value={newCatName}
+                  onChange={(e) => setNewCatName(e.target.value)}
+                  placeholder="Category name (e.g. YouTube Videos, AI, Recipes)..."
+                  className="w-full px-3 py-2 rounded-xl text-xs glass-input text-white placeholder-slate-400 focus:ring-1 focus:ring-cyan-400"
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleCreateInlineCategory();
+                    }
+                  }}
+                />
+
+                {/* Color swatches */}
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <div className="flex items-center gap-1.5 overflow-x-auto py-1">
+                    {COLOR_OPTIONS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => setNewCatColor(c)}
+                        className={`w-5 h-5 rounded-full bg-gradient-to-tr ${
+                          CATEGORY_COLORS[c]?.gradient || "from-purple-500 to-indigo-600"
+                        } transition-transform ${
+                          newCatColor === c
+                            ? "ring-2 ring-white scale-110 shadow-lg"
+                            : "opacity-60 hover:opacity-100"
+                        }`}
+                      />
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleCreateInlineCategory()}
+                    disabled={!newCatName.trim()}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-cyan-500 hover:bg-cyan-400 disabled:opacity-50 transition-all shrink-0 shadow-md"
+                  >
+                    Create & Select
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Existing Categories Grid */
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto pr-1">
+                {categories.map((cat) => {
+                  const isSelected = targetCategory === cat.id;
+                  const colorStyles = CATEGORY_COLORS[cat.color] || CATEGORY_COLORS.purple;
+
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      disabled={isLoading}
+                      onClick={() => setTargetCategory(cat.id)}
+                      className={`flex items-center gap-2 p-2 rounded-xl text-xs font-medium border text-left transition-all ${
+                        isSelected
+                          ? `bg-gradient-to-r ${colorStyles.gradient} text-white shadow-md ${colorStyles.glow} border-white/40 ring-1 ring-white/20`
+                          : "glass-button text-slate-300 hover:text-white border-white/5"
+                      }`}
+                    >
+                      <CategoryIcon name={cat.icon} className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">{cat.name}</span>
+                    </button>
+                  );
+                })}
+
+                {/* Quick Add Button inside category grid */}
+                <button
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => setIsCreatingCategory(true)}
+                  className="flex items-center gap-1.5 p-2 rounded-xl text-xs font-medium border border-dashed border-cyan-500/40 text-cyan-300 hover:text-white hover:bg-cyan-500/10 transition-all"
+                >
+                  <Plus className="w-3.5 h-3.5 shrink-0" />
+                  <span className="truncate">+ New Category</span>
+                </button>
+              </div>
+            )}
+
+            {/* Currently Selected Category Badge */}
+            {selectedCategoryObj && (
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-400 pt-1 font-medium border-t border-white/5">
+                <span>Saving into:</span>
+                <span className="text-white font-semibold flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/10 border border-white/10">
+                  <CategoryIcon name={selectedCategoryObj.icon} className="w-3 h-3 text-cyan-300" />
+                  {selectedCategoryObj.name}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* STEP 2: TARGET LINK / URL */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
+                <span className="w-4 h-4 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center text-[10px] font-mono font-bold">
+                  2
+                </span>
+                <span>Target Link / Video URL</span>
+              </label>
+              {initialUrl && (
+                <span className="text-[10px] px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 font-medium">
+                  ⚡ Link Detected
+                </span>
+              )}
+            </div>
             <div className="relative">
               <input
                 type="text"
@@ -174,7 +358,7 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
                 disabled={isLoading}
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://example.com/article, github repo, video..."
+                placeholder="https://youtu.be/..., article, repo, link..."
                 className="w-full pl-3.5 pr-24 py-2.5 rounded-xl text-sm glass-input text-slate-100 placeholder-slate-400 focus:ring-1 focus:ring-purple-500 disabled:opacity-50"
               />
               <button
@@ -186,36 +370,6 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
                 <Clipboard className="w-3.5 h-3.5" />
                 <span>Paste</span>
               </button>
-            </div>
-          </div>
-
-          {/* Category Selection */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-              Category
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {categories.map((cat) => {
-                const isSelected = targetCategory === cat.id;
-                const colorStyles = CATEGORY_COLORS[cat.color] || CATEGORY_COLORS.purple;
-
-                return (
-                  <button
-                    key={cat.id}
-                    type="button"
-                    disabled={isLoading}
-                    onClick={() => setTargetCategory(cat.id)}
-                    className={`flex items-center gap-2 p-2 rounded-xl text-xs font-medium border text-left transition-all ${
-                      isSelected
-                        ? `bg-gradient-to-r ${colorStyles.gradient} text-white shadow-md ${colorStyles.glow} border-white/30`
-                        : "glass-button text-slate-300 hover:text-white border-white/5"
-                    }`}
-                  >
-                    <CategoryIcon name={cat.icon} className="w-3.5 h-3.5 shrink-0" />
-                    <span className="truncate">{cat.name}</span>
-                  </button>
-                );
-              })}
             </div>
           </div>
 
@@ -308,7 +462,7 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
 
             <button
               type="submit"
-              disabled={isLoading || !url.trim()}
+              disabled={isLoading || !url.trim() || !targetCategory}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-white glass-button-primary disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
             >
               {isLoading ? (
@@ -319,7 +473,9 @@ export const AddLinkModal: React.FC<AddLinkModalProps> = ({
               ) : (
                 <>
                   <Sparkles className="w-3.5 h-3.5 text-cyan-300" />
-                  <span>Synthesize & Save</span>
+                  <span>
+                    {selectedCategoryObj ? `Save to ${selectedCategoryObj.name}` : "Synthesize & Save"}
+                  </span>
                 </>
               )}
             </button>
