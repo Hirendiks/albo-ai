@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { AnalyzedLink, Category } from "@/types";
 import { CATEGORY_COLORS } from "@/lib/colorTheme";
 import { CategoryIcon } from "./Icons";
-import { cleanAndDeduplicateTakeaways, formatTakeawayItem } from "@/lib/ai";
+import { cleanAndDeduplicateTakeaways, formatTakeawayItem, parseTakeawayLine } from "@/lib/ai";
 import { deduplicatePhoneNumbers, getSourcePlatform } from "@/lib/scraper";
 import {
   ExternalLink,
@@ -20,6 +20,7 @@ import {
   PhoneCall,
   Check,
   MapPin,
+  Play,
 } from "lucide-react";
 
 interface LinkCardProps {
@@ -207,6 +208,16 @@ export const LinkCard: React.FC<LinkCardProps> = ({
             {link.title}
           </h3>
 
+          {/* Channel Badge (Matching reference [▶ CHANNEL_NAME]) */}
+          {(link.author || sourceInfo.name === "YouTube") && (
+            <div className="mt-2 flex items-center gap-2">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-600/20 text-red-400 border border-red-500/30 uppercase tracking-wide">
+                <Play className="w-2.5 h-2.5 fill-current" />
+                <span className="truncate max-w-[220px]">{link.author || "YouTube Channel"}</span>
+              </span>
+            </div>
+          )}
+
           {/* Location (Fetched if available) */}
           {location && (
             <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-300/95 font-medium px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 w-fit max-w-full">
@@ -263,8 +274,42 @@ export const LinkCard: React.FC<LinkCardProps> = ({
             </div>
           )}
 
-          {/* Key Takeaway with small title (Synthesized from spoken words & description) */}
-          {takeaway && takeaway.content && (
+          {/* KEY TAKEAWAYS (Emoji + Bold Title - Crux matching reference layout) */}
+          {displayTakeaways.length > 0 ? (
+            <div className="mt-3 p-3 rounded-xl bg-slate-900/90 border border-purple-500/30 space-y-2 shadow-sm">
+              <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-purple-300 border-b border-white/5 pb-1.5">
+                <span className="flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                  <span>KEY TAKEAWAYS</span>
+                </span>
+                {displayTakeaways.length > 3 && (
+                  <span className="text-[10px] font-normal text-purple-400/80">
+                    +{displayTakeaways.length - 3} more
+                  </span>
+                )}
+              </div>
+              <ul className="space-y-2 pt-0.5">
+                {displayTakeaways.slice(0, 3).map((point, idx) => {
+                  const parsed = parseTakeawayLine(point);
+                  return (
+                    <li key={idx} className="text-xs text-slate-200/95 leading-relaxed flex items-start gap-2">
+                      <span className="text-sm shrink-0 leading-none select-none mt-0.5">{parsed.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        {parsed.title ? (
+                          <>
+                            <strong className="font-bold text-white mr-1.5">{parsed.title} -</strong>
+                            <span className="text-slate-300">{parsed.body}</span>
+                          </>
+                        ) : (
+                          <span className="text-slate-200">{parsed.body}</span>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : takeaway && takeaway.content ? (
             <div className="mt-2.5 p-2.5 rounded-xl bg-purple-950/25 border border-purple-500/25 space-y-1">
               <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-purple-300">
                 <Sparkles className="w-3 h-3 text-purple-400 shrink-0" />
@@ -274,30 +319,7 @@ export const LinkCard: React.FC<LinkCardProps> = ({
                 {takeaway.content}
               </p>
             </div>
-          )}
-
-          {/* Point-Wise Crux of What Has Been Spoken in Video */}
-          {displayTakeaways.length > 0 && (
-            <div className="mt-2.5 p-2.5 rounded-xl bg-cyan-950/20 border border-cyan-500/20 space-y-1.5">
-              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
-                <CheckCircle2 className="w-3 h-3 text-cyan-400 shrink-0" />
-                <span>Video Crux (Spoken Point-Wise)</span>
-              </div>
-              <ul className="space-y-1">
-                {displayTakeaways.slice(0, 3).map((point, idx) => (
-                  <li key={idx} className="text-xs text-slate-200/95 leading-snug flex items-start gap-1.5">
-                    <span className="text-cyan-400 font-bold shrink-0">•</span>
-                    <span className="line-clamp-2">{point}</span>
-                  </li>
-                ))}
-              </ul>
-              {displayTakeaways.length > 3 && (
-                <div className="text-[10px] text-cyan-400/80 font-medium pt-0.5">
-                  +{displayTakeaways.length - 3} more key points (click to open)
-                </div>
-              )}
-            </div>
-          )}
+          ) : null}
 
           {/* Summary */}
           <div className="mt-2.5 space-y-1">

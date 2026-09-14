@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { AnalyzedLink, Category } from "@/types";
 import { CATEGORY_COLORS } from "@/lib/colorTheme";
 import { CategoryIcon } from "./Icons";
-import { cleanAndDeduplicateTakeaways, formatTakeawayItem } from "@/lib/ai";
+import { cleanAndDeduplicateTakeaways, formatTakeawayItem, parseTakeawayLine } from "@/lib/ai";
 import { deduplicatePhoneNumbers, getSourcePlatform } from "@/lib/scraper";
 import {
   X,
@@ -31,6 +31,7 @@ import {
   Edit3,
   Save,
   PlusCircle,
+  Play,
 } from "lucide-react";
 
 interface LinkDetailModalProps {
@@ -306,6 +307,15 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
             <h2 className="text-lg sm:text-xl font-bold text-white leading-tight">
               {link.title}
             </h2>
+
+            {(link.author || sourceInfo.name === "YouTube") && (
+              <div className="mt-2.5 flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-600/25 text-red-300 border border-red-500/40 uppercase tracking-wide backdrop-blur-md shadow-sm">
+                  <Play className="w-3 h-3 fill-current text-red-400" />
+                  <span>{link.author || "YouTube Channel"}</span>
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -601,8 +611,47 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
               </div>
             )}
 
-          {/* Section 3: Key Takeaway with small title (Synthesized from spoken words & description) */}
-          {takeaway && takeaway.content && (
+          {/* Section: KEY TAKEAWAYS (Matching reference format: Emoji + Bold Title - Crux) */}
+          {displayTakeaways.length > 0 ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs uppercase font-bold tracking-wider text-purple-300 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                  <span>KEY TAKEAWAYS (Video Crux)</span>
+                </h3>
+                <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
+                  Point-wise key insights from video & description
+                </span>
+              </div>
+              <div className="space-y-2.5">
+                {displayTakeaways.map((point, index) => {
+                  const parsed = parseTakeawayLine(point);
+                  return (
+                    <div
+                      key={index}
+                      className="p-3.5 rounded-xl flex items-start gap-3 text-xs sm:text-sm leading-relaxed transition-all bg-slate-900/90 border border-purple-500/25 text-slate-100 shadow-sm hover:border-purple-500/40"
+                    >
+                      <span className="text-lg shrink-0 select-none leading-none mt-0.5">
+                        {parsed.emoji}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        {parsed.title ? (
+                          <>
+                            <strong className="font-bold text-white mr-1.5 text-sm">
+                              {parsed.title} -
+                            </strong>
+                            <span className="text-slate-300">{parsed.body}</span>
+                          </>
+                        ) : (
+                          <span className="text-slate-200">{parsed.body}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : takeaway && takeaway.content ? (
             <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-indigo-950/20 to-slate-900/60 border border-purple-500/30 space-y-2">
               <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-purple-300">
                 <Sparkles className="w-4 h-4 text-purple-400" />
@@ -615,9 +664,9 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
                 Synthesized from spoken dialogue on video & link description
               </div>
             </div>
-          )}
+          ) : null}
 
-          {/* Section 4: Summary */}
+          {/* Section: Summary */}
           <div className="p-4 rounded-2xl bg-slate-900/80 border border-white/10 space-y-2.5">
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
               <BookOpen className="w-4 h-4 text-cyan-400" />
@@ -642,34 +691,6 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
               </h3>
               <div className="p-3.5 rounded-xl bg-purple-950/20 border border-purple-500/25 text-xs sm:text-sm text-purple-200 leading-relaxed whitespace-pre-line">
                 {link.aiSummary.spokenOrOnScreenContent}
-              </div>
-            </div>
-          )}
-
-          {/* Crux of What Has Been Spoken Point-by-Point */}
-          {displayTakeaways.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs uppercase font-bold tracking-wider text-cyan-300 flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-cyan-400" />
-                  <span>Crux of What Was Spoken in Video (Point-by-Point)</span>
-                </h3>
-                <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
-                  Complete video knowledge without watching
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {displayTakeaways.map((point, index) => (
-                  <div
-                    key={index}
-                    className="p-3.5 rounded-xl flex items-start gap-2.5 text-xs leading-relaxed transition-all bg-slate-900/90 border border-cyan-500/20 text-slate-100 shadow-sm hover:border-cyan-500/40"
-                  >
-                    <span className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 font-bold text-[10px] bg-cyan-500/25 text-cyan-300">
-                      {index + 1}
-                    </span>
-                    <span className="font-medium text-slate-200">{point}</span>
-                  </div>
-                ))}
               </div>
             </div>
           )}

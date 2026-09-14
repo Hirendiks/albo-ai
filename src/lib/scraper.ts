@@ -692,8 +692,23 @@ function decodeHtmlEntities(str: string): string {
 
 function cleanTitle(raw: string): string {
   if (!raw) return "";
-  return decodeHtmlEntities(raw)
+  let clean = decodeHtmlEntities(raw)
     .replace(/\r?\n|\r/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+  // Strip trailing YouTube / site branding
+  clean = clean.replace(/\s*-\s*YouTube$/i, "");
+  // Strip trailing bracketed tags e.g. "[iOS 27, Siri AI App... #shorts]"
+  clean = clean.replace(/\s*\[[^\]]*#(?:shorts|reels?|tiktok|apple|viral)[^\]]*\]/gi, "");
+  // Strip unclosed brackets at end of title
+  clean = clean.replace(/\s*\[[^\]]*$/g, "");
+  // Strip trailing hashtag lists e.g. "#apple #iphone #shorts"
+  clean = clean.replace(/(?:\s*#[a-zA-Z0-9_]+)+$/g, "");
+  // Strip common trailing clickbait fillers
+  clean = clean.replace(/\s*(?:anyone who has|share this with|must watch|watch till the end).*$/i, "");
+  // Clean trailing punctuation or separators
+  clean = clean.replace(/[\s\-_|~]+$/, "").trim();
+
+  return clean || raw.trim();
 }
