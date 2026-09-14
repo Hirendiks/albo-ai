@@ -75,8 +75,8 @@ export function cleanAndDeduplicateTakeaways(
       }
     }
 
-    // 4. Remove takeaways that duplicate the TL;DR
-    if (cleanTldr && (lowerClean === cleanTldr || cleanTldr.includes(lowerClean) || lowerClean.includes(cleanTldr))) {
+    // 4. Remove takeaways that are 100% identical to the full TL;DR
+    if (cleanTldr && lowerClean === cleanTldr) {
       continue;
     }
 
@@ -197,8 +197,8 @@ async function generateGeminiSummary(
   const imageSource = data.screenshotImage || data.screenshot || data.image;
   const imagePart = await resolveImagePart(imageSource);
 
-  const prompt = `You are an elite multimodal AI researcher and visual OCR analyst.
-Analyze the following webpage, video metadata, description, and attached visual image/screenshot. Return a structured JSON response.
+  const prompt = `You are an elite multimodal AI researcher and video transcript intelligence analyst.
+Analyze the following webpage, video metadata, description, spoken dialogue, and attached visual image/screenshot. Return a structured JSON response.
 
 URL: ${data.url}
 Detected Content Type: ${detectedType}
@@ -207,37 +207,46 @@ Site: ${data.siteName}
 Author: ${data.author || "Unknown"}
 Headings: ${data.headings.join(", ")}
 ${data.onScreenNotes ? `User-noted on-screen / dialogue details:\n${data.onScreenNotes}\n` : ""}
-Content sample & video description:
-${data.extractedText.slice(0, 6000)}
+Content sample, description & video dialogue:
+${data.extractedText.slice(0, 7000)}
 
-CRITICAL MULTIMODAL & ON-SCREEN EXTRACTION INSTRUCTIONS (5 CATEGORIES):
-1. "sourcePlatform": Name of the platform (e.g. "Instagram", "YouTube", "X (Twitter)", "Facebook", "TikTok", "LinkedIn", "Reddit", "GitHub", or clean site name).
-2. "phoneNumbers":
-   - IF AN IMAGE / SCREENSHOT IS ATTACHED: Carefully inspect every corner, banner, poster frame, text overlay, business board, watermark, and video subtitle for contact phone numbers.
-   - Look for ALL contact phone numbers (including Indian 10-digit mobile numbers starting with 6/7/8/9, +91, 0, or formatted numbers), WhatsApp numbers/links.
-   - Also scan the description, headings, and notes for phone numbers.
-   - Return every detected phone number in contactInfo.phoneNumbers.
-3. "keyTakeaway":
-   - A single, high-impact key takeaway synthesizing BOTH the spoken words/visual demonstrations on the video AND the link description.
-   - Must have:
-     * "title": A short, punchy small title (2 to 4 words, e.g. "Live Demonstration", "Product Specs & Pricing", "Marble Quality Check", "Core Technique").
-     * "content": 1 to 2 clear, informative sentences detailing the takeaway.
-4. "summary":
-   - A crisp, comprehensive summary (1 to 2 sentences) summarizing what this link/video covers.
-5. "location":
-   - Fetch the shop address, city, state, or location if visible on screen (business boards, banners, text overlays) or in the description/hashtags (e.g. "Makrana, Rajasthan", "Bandra, Mumbai", etc.). Return null if not found.
+CRITICAL MISSION — POINT-WISE CRUX OF WHAT HAS BEEN SPOKEN (SO USER DOES NOT HAVE TO OPEN VIDEO):
+The user is saving this video/bookmark specifically so they or any reader **DOES NOT HAVE TO OPEN OR WATCH THE VIDEO**!
+They need the complete, substantive, point-by-point knowledge right here in text.
+
+1. "keyTakeaways" (POINT-WISE SPOKEN CRUX):
+   - Provide an array of 3 to 6 rich, concrete point-by-point takeaways breaking down the crux of what was spoken, demonstrated, or taught:
+     * Point 1: The core subject, problem, or topic being tackled.
+     * Point 2: Specific steps, technique, workflow, or demonstration shown.
+     * Point 3: Crucial spoken specifications, rates/pricing, dimensions, quality indicators, or key metrics mentioned.
+     * Point 4: Warnings, common mistakes to avoid, or pro-tips spoken by the creator.
+     * Point 5: Final verdict, conclusion, or recommendation.
+   - DO NOT write generic filler like "informative walkthrough" or "great overview". Give the ACTUAL SUBSTANCE of what was spoken!
+2. "keyTakeaway" (THE SINGLE PRIMARY INSIGHT):
+   - "title": A short punchy title (2 to 4 words, e.g. "Direct Factory Rates", "Polishing Technique", "Zero Fading Quality").
+   - "content": 1 to 2 clear, authoritative sentences stating the most valuable insight or rule from the video.
+3. "summary":
+   - An informative, high-density 2-3 sentence overview delivering the complete crux of what the content explains and concludes.
+4. "sourcePlatform": Name of the platform ("Instagram", "YouTube", "X (Twitter)", "Facebook", "TikTok", "LinkedIn", "Reddit", "GitHub", etc.).
+5. "phoneNumbers":
+   - Carefully inspect visual image/screenshot, OCR text overlays, business boards, and descriptions for all contact phone numbers (including Indian 10-digit mobile numbers with/without +91, 0, or WhatsApp).
+6. "location":
+   - Extract shop location, city, state, or address if spoken, shown, or written (e.g. "Makrana, Rajasthan", "Kishangarh Marble Market", "Bandra, Mumbai"). Return null if not found.
+7. "spokenOrOnScreenContent":
+   - Chronological breakdown of what was spoken or demonstrated on video.
 
 Return ONLY valid JSON matching this schema:
 {
   "sourcePlatform": "Instagram",
-  "summary": "1 to 2 crisp sentences summarizing the core content.",
+  "summary": "2 to 3 substantive sentences delivering the complete crux of the video.",
   "keyTakeaway": {
     "title": "Short Punchy Title",
-    "content": "Key takeaway synthesized from both spoken words on the video and link description."
+    "content": "Decisive takeaway synthesized from spoken dialogue and content."
   },
   "keyTakeaways": [
-    "Distinct key insight 1",
-    "Distinct key insight 2"
+    "Point-wise crux item 1: Exact facts/technique explained",
+    "Point-wise crux item 2: Specific numbers, prices, or steps",
+    "Point-wise crux item 3: Key advice or warning given"
   ],
   "location": "City, State or Shop Location (if found)",
   "contactInfo": {
@@ -334,10 +343,7 @@ Return ONLY valid JSON matching this schema:
  */
 export function generateHeuristicSummary(data: ScrapedData): AISummary {
   const text = data.extractedText || data.description || data.title;
-  const sentences = text
-    .split(/(?<=[.?!])\s+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 25 && !s.includes("cookie") && !s.includes("privacy policy"));
+  let cleanText = text.replace(/\[SPOKEN VIDEO DIALOGUE & TRANSCRIPT[^\]]*\]:\s*/gi, "");
 
   // Content type
   const contentType = detectContentType(data.url);
@@ -345,7 +351,18 @@ export function generateHeuristicSummary(data: ScrapedData): AISummary {
   // Clean description of hashtag noise or debug prefix
   let cleanDesc = (data.description || "")
     .replace(/^VIDEO DESCRIPTION & CONTACT INFO:\s*/i, "")
+    .replace(/\[SPOKEN VIDEO DIALOGUE & TRANSCRIPT[^\]]*\]:\s*/gi, "")
     .trim();
+
+  // If cleanDesc contains huge multi-paragraph text or links, take the first 1-2 paragraphs
+  const descParagraphs = cleanDesc.split(/\n\s*\n/).map((p) => p.trim()).filter((p) => p.length > 15 && !p.startsWith("http"));
+  if (descParagraphs.length > 0) {
+    cleanDesc = descParagraphs.slice(0, 2).join(" ");
+    if (cleanDesc.length > 350) {
+      cleanDesc = cleanDesc.slice(0, 350).replace(/\s+\S*$/, "") + "...";
+    }
+  }
+
   const isOnlyHashtags = cleanDesc.split(/\s+/).every((w) => w.startsWith("#") || w.length < 3);
 
   let tldr = "";
@@ -359,15 +376,34 @@ export function generateHeuristicSummary(data: ScrapedData): AISummary {
     tldr = cleanDesc;
   }
 
-  // Key takeaways from headings and informative sentences
+  // Key takeaways: Extract point-wise crux from lines, bullets, and sentences
   const rawTakeaways: string[] = [];
-  if (data.headings.length > 0) {
-    data.headings.slice(0, 3).forEach((h) => rawTakeaways.push(h));
+
+  // 1. Line/bullet-based points (e.g. from dialogue notes or itemized descriptions)
+  const candidateLines = cleanText
+    .split(/\r?\n+/)
+    .map((l) => l.replace(/^[0-9]+[.)\-•*]\s*/, "").replace(/^[♪\s\-\*\•]+|[♪\s]+$/g, "").trim())
+    .filter((l) => l.length > 20 && !l.toLowerCase().includes("cookie") && !l.startsWith("http"));
+
+  for (const line of candidateLines) {
+    if (rawTakeaways.length >= 5) break;
+    if (!line.endsWith(":") && !rawTakeaways.includes(line)) {
+      rawTakeaways.push(line);
+    }
   }
-  if (sentences.length > 0) {
+
+  // 2. Prose sentence-based points if lines were insufficient
+  const sentences = cleanText
+    .split(/(?<=[.?!])\s+/)
+    .map((s) => s.replace(/^[0-9]+[.)\-•*]\s*/, "").replace(/^[♪\s\-\*\•]+|[♪\s]+$/g, "").trim())
+    .filter((s) => s.length > 20 && !s.includes("cookie") && !s.startsWith("http"));
+
+  if (rawTakeaways.length < 3) {
     for (const s of sentences) {
-      if (rawTakeaways.length >= 4) break;
-      if (!rawTakeaways.includes(s)) rawTakeaways.push(s);
+      if (rawTakeaways.length >= 5) break;
+      if (!rawTakeaways.some((r) => r.includes(s) || s.includes(r))) {
+        rawTakeaways.push(s);
+      }
     }
   }
 

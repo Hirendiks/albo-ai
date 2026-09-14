@@ -276,6 +276,29 @@ export const LinkCard: React.FC<LinkCardProps> = ({
             </div>
           )}
 
+          {/* Point-Wise Crux of What Has Been Spoken in Video */}
+          {displayTakeaways.length > 0 && (
+            <div className="mt-2.5 p-2.5 rounded-xl bg-cyan-950/20 border border-cyan-500/20 space-y-1.5">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+                <CheckCircle2 className="w-3 h-3 text-cyan-400 shrink-0" />
+                <span>Video Crux (Spoken Point-Wise)</span>
+              </div>
+              <ul className="space-y-1">
+                {displayTakeaways.slice(0, 3).map((point, idx) => (
+                  <li key={idx} className="text-xs text-slate-200/95 leading-snug flex items-start gap-1.5">
+                    <span className="text-cyan-400 font-bold shrink-0">•</span>
+                    <span className="line-clamp-2">{point}</span>
+                  </li>
+                ))}
+              </ul>
+              {displayTakeaways.length > 3 && (
+                <div className="text-[10px] text-cyan-400/80 font-medium pt-0.5">
+                  +{displayTakeaways.length - 3} more key points (click to open)
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Summary */}
           <div className="mt-2.5 space-y-1">
             <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">

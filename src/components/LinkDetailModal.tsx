@@ -646,23 +646,28 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
             </div>
           )}
 
-          {/* Section 2: Key Takeaways */}
+          {/* Crux of What Has Been Spoken Point-by-Point */}
           {displayTakeaways.length > 0 && (
             <div className="space-y-3">
-              <h3 className="text-xs uppercase font-bold tracking-wider text-slate-400 flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-emerald-400" />
-                <span>Key Takeaways & Core Points</span>
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs uppercase font-bold tracking-wider text-cyan-300 flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-cyan-400" />
+                  <span>Crux of What Was Spoken in Video (Point-by-Point)</span>
+                </h3>
+                <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">
+                  Complete video knowledge without watching
+                </span>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {displayTakeaways.map((point, index) => (
                   <div
                     key={index}
-                    className="p-3.5 rounded-xl flex items-start gap-2.5 text-xs leading-relaxed transition-all glass-panel-subtle border border-white/5 text-slate-200"
+                    className="p-3.5 rounded-xl flex items-start gap-2.5 text-xs leading-relaxed transition-all bg-slate-900/90 border border-cyan-500/20 text-slate-100 shadow-sm hover:border-cyan-500/40"
                   >
-                    <span className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 font-bold text-[10px] bg-cyan-500/20 text-cyan-300">
+                    <span className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 font-bold text-[10px] bg-cyan-500/25 text-cyan-300">
                       {index + 1}
                     </span>
-                    <span>{point}</span>
+                    <span className="font-medium text-slate-200">{point}</span>
                   </div>
                 ))}
               </div>

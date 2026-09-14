@@ -217,14 +217,32 @@ export async function scrapeUrl(
   let youtubeVideoId: string | null = null;
   let oembedData: { title?: string; author_name?: string; thumbnail_url?: string; description?: string } | null = null;
   let youtubeFullDescription = "";
+  let youtubeTranscriptText = "";
   let mlScreenshot: string | undefined = undefined;
 
-  // 1. YouTube oEmbed
+  // 1. YouTube oEmbed & Spoken Transcript
   if (isYouTube) {
     if (domain.includes("youtu.be")) {
-      youtubeVideoId = parsedUrl.pathname.slice(1);
+      youtubeVideoId = parsedUrl.pathname.slice(1).split("?")[0];
+    } else if (parsedUrl.pathname.includes("/shorts/")) {
+      youtubeVideoId = parsedUrl.pathname.split("/shorts/")[1]?.split("/")[0]?.split("?")[0];
+    } else if (parsedUrl.pathname.includes("/embed/")) {
+      youtubeVideoId = parsedUrl.pathname.split("/embed/")[1]?.split("/")[0]?.split("?")[0];
     } else {
       youtubeVideoId = parsedUrl.searchParams.get("v");
+    }
+
+    // Attempt to automatically extract spoken transcript from YouTube
+    if (youtubeVideoId) {
+      try {
+        const { YoutubeTranscript } = await import("youtube-transcript");
+        const transcriptItems = await YoutubeTranscript.fetchTranscript(youtubeVideoId);
+        if (transcriptItems && transcriptItems.length > 0) {
+          youtubeTranscriptText = transcriptItems.map((t) => t.text).join(" ");
+        }
+      } catch {
+        // Video has no captions or transcript was unavailable
+      }
     }
 
     try {
@@ -306,7 +324,8 @@ export async function scrapeUrl(
         if (mlRes.ok) {
           const mlData = await mlRes.json();
           if (mlData.data) {
-            if (mlData.data.screenshot?.url) {
+            // Microlink screenshot for Instagram is a login wall error modal ("Post isn't available"). Do not use it for analysis.
+            if (!isInstagram && mlData.data.screenshot?.url) {
               mlScreenshot = mlData.data.screenshot.url;
             }
             if (mlData.data.image?.url) {
@@ -588,6 +607,11 @@ export async function scrapeUrl(
         textBlocks.push(p);
       }
     });
+
+    // If YouTube transcript was fetched, prioritize the actual spoken dialogue!
+    if (youtubeTranscriptText) {
+      textBlocks.unshift(`[SPOKEN VIDEO DIALOGUE & TRANSCRIPT (Crux of what was spoken)]:\n${youtubeTranscriptText}`);
+    }
 
     // If YouTube, prioritize the full description with contacts & links
     if (youtubeFullDescription) {
