@@ -43,10 +43,93 @@ export function deduplicatePhoneNumbers(phones: string[]): string[] {
   return result.slice(0, 6);
 }
 
+export function getSourcePlatform(url: string, siteName?: string): { name: string; domain: string } {
+  try {
+    const parsed = new URL(normalizeUrl(url));
+    const domain = parsed.hostname.replace(/^www\./, "").toLowerCase();
+
+    if (domain.includes("instagram.com") || domain.includes("threads.net")) {
+      return { name: "Instagram", domain };
+    }
+    if (domain.includes("youtube.com") || domain.includes("youtu.be")) {
+      return { name: "YouTube", domain };
+    }
+    if (domain === "x.com" || domain.includes("twitter.com")) {
+      return { name: "X (Twitter)", domain };
+    }
+    if (domain.includes("facebook.com") || domain.includes("fb.watch")) {
+      return { name: "Facebook", domain };
+    }
+    if (domain.includes("linkedin.com")) {
+      return { name: "LinkedIn", domain };
+    }
+    if (domain.includes("reddit.com")) {
+      return { name: "Reddit", domain };
+    }
+    if (domain.includes("tiktok.com")) {
+      return { name: "TikTok", domain };
+    }
+    if (domain.includes("github.com") || domain.includes("gitlab.com")) {
+      return { name: "GitHub", domain };
+    }
+    if (domain.includes("pinterest.com") || domain.includes("pin.it")) {
+      return { name: "Pinterest", domain };
+    }
+    if (domain.includes("medium.com")) {
+      return { name: "Medium", domain };
+    }
+    if (siteName && siteName.trim() && !siteName.toLowerCase().includes("web")) {
+      return { name: siteName.trim(), domain };
+    }
+    const cleanDomain = domain.split(".")[0];
+    return { name: cleanDomain.charAt(0).toUpperCase() + cleanDomain.slice(1), domain };
+  } catch {
+    return { name: siteName || "Web", domain: "" };
+  }
+}
+
+export function extractRegexLocation(text: string): string | undefined {
+  if (!text) return undefined;
+
+  // 1. Explicit keyword matches: "Showroom Address: Kishangarh Marble Market, Rajasthan", "Location: Makrana", "Shop: ..."
+  const explicitRegex = /(?:📍|location|address|office|store|showroom|factory|outlet|branch|shop|headquarters|hq|depot)(?:\s*(?:address|location|branch|office|no|point|center|outlet))?\s*[:\-–]?\s*(?:at|in|near)?\s+([^.\n;:]{3,60}(?:,[^.\n;:]{2,35})?)/i;
+  const explicitMatch = text.match(explicitRegex);
+  if (explicitMatch && explicitMatch[1]) {
+    let loc = explicitMatch[1].trim();
+    loc = loc.replace(/[.,;]+$/, "").trim();
+    const digitCount = (loc.match(/\d/g) || []).length;
+    const isContactWord = /\b(?:call|whatsapp|contact|phone|mobile|tel|inquiry|price|rate|booking|dm|order|email|visit)\b/i.test(loc);
+    
+    if (loc.length > 3 && !loc.toLowerCase().includes("http") && digitCount < 5 && !isContactWord) {
+      return loc;
+    }
+  }
+
+  // 2. Common Indian commercial hubs / major cities with state or district
+  const hubRegex = /\b(Makrana|Kishangarh|Jaipur|Jodhpur|Udaipur|Surat|Ahmedabad|Rajkot|Vadodara|Mumbai|Pune|Nagpur|Nashik|Delhi|New Delhi|Noida|Gurugram|Gurgaon|Faridabad|Bengaluru|Bangalore|Hyderabad|Chennai|Coimbatore|Kolkata|Chandigarh|Ludhiana|Lucknow|Kanpur|Indore|Bhopal|Patna|Varanasi|Agra)\b(?:\s*,\s*([A-Za-z\s]{3,20}))?/i;
+  const hubMatch = text.match(hubRegex);
+  if (hubMatch) {
+    const city = hubMatch[1].trim();
+    const stateOrArea = hubMatch[2]?.trim();
+    return stateOrArea ? `${city}, ${stateOrArea}` : city;
+  }
+
+  // 3. Hashtag location signals like #makrana #jaipur #mumbai #delhi
+  const hashtagRegex = /#(makrana|kishangarh|jaipur|jodhpur|surat|ahmedabad|mumbai|pune|delhi|noida|gurgaon|bengaluru|bangalore|hyderabad|chennai|kolkata|lucknow|indore)\b/i;
+  const tagMatch = text.match(hashtagRegex);
+  if (tagMatch && tagMatch[1]) {
+    const city = tagMatch[1].charAt(0).toUpperCase() + tagMatch[1].slice(1).toLowerCase();
+    return city;
+  }
+
+  return undefined;
+}
+
 export function extractRegexContacts(text: string): {
   phoneNumbers: string[];
   emails: string[];
   links: string[];
+  addressOrLocation?: string;
 } {
   if (!text) return { phoneNumbers: [], emails: [], links: [] };
 
@@ -98,10 +181,14 @@ export function extractRegexContacts(text: string): {
     new Set(rawUrls.map((u) => u.replace(/[.,;)]+$/, "")))
   ).slice(0, 8);
 
+  // 7. Extract location if present in text
+  const addressOrLocation = extractRegexLocation(text);
+
   return {
     phoneNumbers: validPhones,
     emails,
     links,
+    addressOrLocation,
   };
 }
 

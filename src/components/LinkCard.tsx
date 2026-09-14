@@ -4,8 +4,8 @@ import React, { useState } from "react";
 import { AnalyzedLink, Category } from "@/types";
 import { CATEGORY_COLORS } from "@/lib/colorTheme";
 import { CategoryIcon } from "./Icons";
-import { cleanAndDeduplicateTakeaways } from "@/lib/ai";
-import { deduplicatePhoneNumbers } from "@/lib/scraper";
+import { cleanAndDeduplicateTakeaways, formatTakeawayItem } from "@/lib/ai";
+import { deduplicatePhoneNumbers, getSourcePlatform } from "@/lib/scraper";
 import {
   ExternalLink,
   Star,
@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   PhoneCall,
   Check,
+  MapPin,
 } from "lucide-react";
 
 interface LinkCardProps {
@@ -41,12 +42,30 @@ export const LinkCard: React.FC<LinkCardProps> = ({
   const [copied, setCopied] = useState(false);
   const [copiedPhone, setCopiedPhone] = useState(false);
 
+  const sourceInfo = getSourcePlatform(link.url, link.siteName);
+  const sourceName = link.aiSummary.sourcePlatform || sourceInfo.name;
+
   const phoneNumbers = deduplicatePhoneNumbers(link.aiSummary.contacts?.phoneNumbers || []);
+
+  const location =
+    link.aiSummary.location ||
+    link.aiSummary.contacts?.addressOrLocation ||
+    undefined;
+
   const displayTakeaways = cleanAndDeduplicateTakeaways(
     link.aiSummary.keyTakeaways || [],
     link.title,
     link.aiSummary.tldr
   );
+
+  const takeaway =
+    link.aiSummary.takeaway ||
+    formatTakeawayItem(
+      undefined,
+      displayTakeaways,
+      link.aiSummary.spokenOrOnScreenContent,
+      link.description
+    );
 
   const colorStyles = category
     ? CATEGORY_COLORS[category.color] || CATEGORY_COLORS.purple
@@ -149,9 +168,16 @@ export const LinkCard: React.FC<LinkCardProps> = ({
           </div>
         </div>
 
-        {/* Domain and Favicon pill over image */}
-        <div className="absolute bottom-3 left-3 flex items-center gap-2 max-w-[85%]">
-          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-950/80 backdrop-blur-md border border-white/10 text-xs text-slate-300">
+        {/* Source Platform Link over image */}
+        <div className="absolute bottom-3 left-3 flex items-center gap-2 max-w-[90%]">
+          <a
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950/85 hover:bg-slate-900 text-cyan-300 hover:text-cyan-200 border border-cyan-500/30 text-[11px] font-semibold backdrop-blur-md transition-all shadow-md group/source"
+            title={`Source: ${sourceName} (Click to open in ${sourceName})`}
+          >
             {link.favicon && (
               <img
                 src={link.favicon}
@@ -162,10 +188,9 @@ export const LinkCard: React.FC<LinkCardProps> = ({
                 }}
               />
             )}
-            <span className="truncate font-medium text-[11px]">
-              {link.siteName || "Web Resource"}
-            </span>
-          </div>
+            <span className="truncate">Source: {sourceName}</span>
+            <ExternalLink className="w-3 h-3 text-cyan-400 shrink-0 group-hover/source:translate-x-0.5 transition-transform" />
+          </a>
 
           <span className="inline-flex items-center gap-1 text-[11px] text-slate-400 px-2 py-1 rounded-lg bg-slate-950/60 backdrop-blur-md">
             <Clock className="w-3 h-3" />
@@ -182,10 +207,13 @@ export const LinkCard: React.FC<LinkCardProps> = ({
             {link.title}
           </h3>
 
-          {/* AI TL;DR */}
-          <p className="mt-2 text-xs text-slate-300/90 line-clamp-2 leading-relaxed">
-            {link.aiSummary.tldr}
-          </p>
+          {/* Location (Fetched if available) */}
+          {location && (
+            <div className="mt-2 flex items-center gap-1.5 text-xs text-amber-300/95 font-medium px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 w-fit max-w-full">
+              <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="truncate font-semibold">Location: {location}</span>
+            </div>
+          )}
 
           {/* Direct On-Screen Phone Banner (Single canonical deduplicated phone) */}
           {phoneNumbers.length > 0 && (
@@ -213,7 +241,7 @@ export const LinkCard: React.FC<LinkCardProps> = ({
                       target="_blank"
                       rel="noopener noreferrer"
                       onClick={(e) => e.stopPropagation()}
-                      className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 text-emerald-200 font-semibold border border-emerald-500/30"
+                      className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/25 hover:bg-emerald-500/40 text-emerald-200 font-semibold border border-emerald-500/30"
                       title="Chat on WhatsApp"
                     >
                       WhatsApp
@@ -235,25 +263,33 @@ export const LinkCard: React.FC<LinkCardProps> = ({
             </div>
           )}
 
-          {/* Key Takeaways preview (clean, non-repeating) */}
-          {displayTakeaways.length > 0 && (
-            <div className="mt-3 pt-2.5 border-t border-white/5 space-y-1.5">
-              {displayTakeaways.slice(0, 2).map((point, idx) => (
-                <div
-                  key={idx}
-                  className="flex items-start gap-1.5 text-[11px] leading-relaxed text-slate-300/85"
-                >
-                  <span className="text-cyan-400 font-bold shrink-0 mt-0.5">•</span>
-                  <span className="line-clamp-2">{point}</span>
-                </div>
-              ))}
+          {/* Key Takeaway with small title (Synthesized from spoken words & description) */}
+          {takeaway && takeaway.content && (
+            <div className="mt-2.5 p-2.5 rounded-xl bg-purple-950/25 border border-purple-500/25 space-y-1">
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-purple-300">
+                <Sparkles className="w-3 h-3 text-purple-400 shrink-0" />
+                <span>{takeaway.title || "Key Takeaway"}</span>
+              </div>
+              <p className="text-xs text-slate-200/90 leading-relaxed line-clamp-2">
+                {takeaway.content}
+              </p>
             </div>
           )}
+
+          {/* Summary */}
+          <div className="mt-2.5 space-y-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              Summary
+            </span>
+            <p className="text-xs text-slate-300/90 line-clamp-2 leading-relaxed">
+              {link.aiSummary.tldr}
+            </p>
+          </div>
 
           {/* Prompt to add contact if none exists */}
           {phoneNumbers.length === 0 &&
             (!link.aiSummary.contacts?.emails || link.aiSummary.contacts.emails.length === 0) && (
-              <div className="mt-2 flex items-center justify-between text-[11px] text-slate-400 bg-white/[0.02] hover:bg-white/[0.05] px-2.5 py-1.5 rounded-xl border border-dashed border-white/10 transition-colors">
+              <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-400 bg-white/[0.02] hover:bg-white/[0.05] px-2.5 py-1.5 rounded-xl border border-dashed border-white/10 transition-colors">
                 <span className="flex items-center gap-1 text-[10px]">
                   <PhoneCall className="w-3 h-3 text-slate-500" />
                   <span>No contact extracted</span>

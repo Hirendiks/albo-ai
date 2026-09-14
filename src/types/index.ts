@@ -35,9 +35,15 @@ export interface ExtractedContacts {
   pricingOrOffers?: string;
 }
 
+export interface KeyTakeawayItem {
+  title: string;
+  content: string;
+}
+
 export interface AISummary {
   tldr: string;
   keyTakeaways: string[];
+  takeaway?: KeyTakeawayItem;
   detailedSummary: string;
   actionableInsights: string[];
   tags: string[];
@@ -47,6 +53,8 @@ export interface AISummary {
   isAiGenerated: boolean;
   contacts?: ExtractedContacts;
   spokenOrOnScreenContent?: string;
+  location?: string;
+  sourcePlatform?: string;
 }
 
 export interface AnalyzedLink {
@@ -86,6 +94,7 @@ export interface ScrapedData {
     phoneNumbers: string[];
     emails: string[];
     links: string[];
+    addressOrLocation?: string;
   };
   onScreenNotes?: string;
 }

@@ -4,8 +4,8 @@ import React, { useState } from "react";
 import { AnalyzedLink, Category } from "@/types";
 import { CATEGORY_COLORS } from "@/lib/colorTheme";
 import { CategoryIcon } from "./Icons";
-import { cleanAndDeduplicateTakeaways } from "@/lib/ai";
-import { deduplicatePhoneNumbers } from "@/lib/scraper";
+import { cleanAndDeduplicateTakeaways, formatTakeawayItem } from "@/lib/ai";
+import { deduplicatePhoneNumbers, getSourcePlatform } from "@/lib/scraper";
 import {
   X,
   ExternalLink,
@@ -76,12 +76,29 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
     ? CATEGORY_COLORS[category.color] || CATEGORY_COLORS.purple
     : CATEGORY_COLORS.purple;
 
+  const sourceInfo = getSourcePlatform(link.url, link.siteName);
+  const sourceName = link.aiSummary.sourcePlatform || sourceInfo.name;
+
   const phoneNumbers = deduplicatePhoneNumbers(link.aiSummary.contacts?.phoneNumbers || []);
+  const location =
+    link.aiSummary.location ||
+    link.aiSummary.contacts?.addressOrLocation ||
+    undefined;
+
   const displayTakeaways = cleanAndDeduplicateTakeaways(
     link.aiSummary.keyTakeaways || [],
     link.title,
     link.aiSummary.tldr
   );
+
+  const takeaway =
+    link.aiSummary.takeaway ||
+    formatTakeawayItem(
+      undefined,
+      displayTakeaways,
+      link.aiSummary.spokenOrOnScreenContent,
+      link.description
+    );
 
   const handleCopySummary = async () => {
     let contactText = "";
@@ -89,10 +106,10 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
       const items: string[] = [];
       if (phoneNumbers.length > 0) items.push(`Phone: ${phoneNumbers.join(", ")}`);
       if (link.aiSummary.contacts?.emails?.length) items.push(`Email: ${link.aiSummary.contacts.emails.join(", ")}`);
-      if (link.aiSummary.contacts?.addressOrLocation) items.push(`Address: ${link.aiSummary.contacts.addressOrLocation}`);
-      contactText = `\n## Contacts\n${items.map((i) => `- ${i}`).join("\n")}\n`;
+      if (location) items.push(`Location: ${location}`);
+      contactText = `\n## Contacts & Location\n${items.map((i) => `- ${i}`).join("\n")}\n`;
     }
-    const formatted = `# ${link.title}\nSource: ${link.url}\n\n## TL;DR\n${link.aiSummary.tldr}${contactText}\n## Key Takeaways\n${displayTakeaways.map((k) => `- ${k}`).join("\n")}\n\n## Deep Dive\n${link.aiSummary.detailedSummary}\n\n## Actionable Insights\n${link.aiSummary.actionableInsights.map((a) => `- ${a}`).join("\n")}`;
+    const formatted = `# ${link.title}\nSource: ${sourceName} (${link.url})\n\n## TL;DR\n${link.aiSummary.tldr}${contactText}\n## Key Takeaway: ${takeaway.title}\n${takeaway.content}\n\n## Summary\n${link.aiSummary.detailedSummary}`;
     try {
       await navigator.clipboard.writeText(formatted);
       setCopiedSummary(true);
@@ -254,12 +271,26 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
           {/* Title & Metadata over Image Bottom */}
           <div className="absolute bottom-4 left-4 right-4">
             <div className="flex flex-wrap items-center gap-2 mb-2">
-              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950/80 backdrop-blur-md border border-white/10 text-xs text-slate-300">
+              <a
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-950/85 hover:bg-slate-900 border border-cyan-500/30 text-xs text-cyan-300 font-semibold shadow-md transition-all hover:scale-105"
+                title={`Open in ${sourceName}`}
+              >
                 {link.favicon && (
                   <img src={link.favicon} alt="" className="w-3.5 h-3.5 rounded-sm" />
                 )}
-                <span>{link.siteName || "Web"}</span>
-              </span>
+                <span>Source: {sourceName}</span>
+                <ExternalLink className="w-3 h-3 text-cyan-400" />
+              </a>
+              {location && (
+                <span className="flex items-center gap-1 text-xs text-amber-300 px-2.5 py-1 rounded-lg bg-slate-950/80 border border-amber-500/30 font-medium">
+                  <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="truncate max-w-[200px]">{location}</span>
+                </span>
+              )}
               <span className="flex items-center gap-1 text-xs text-slate-400 px-2 py-1 rounded-lg bg-slate-950/60 backdrop-blur-md">
                 <Clock className="w-3 h-3 text-cyan-400" />
                 <span>{link.aiSummary.estimatedReadTime}</span>
@@ -286,9 +317,10 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
               href={link.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white glass-button-primary"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white glass-button-primary shadow-lg shadow-cyan-500/15"
+              title={`Open directly in ${sourceName}`}
             >
-              <span>Visit Original Resource</span>
+              <span>Source: {sourceName} (Open in {sourceName})</span>
               <ExternalLink className="w-3.5 h-3.5" />
             </a>
 
@@ -444,32 +476,37 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
               </div>
             )}
 
-          {/* Section 1: TL;DR Box */}
-          <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-900/30 via-indigo-900/20 to-blue-900/30 border border-purple-500/25 relative overflow-hidden">
-            <div className="flex items-center gap-2 mb-2 text-xs font-bold uppercase tracking-wider text-purple-300">
-              {link.aiSummary.isAiGenerated ? (
-                <Sparkles className="w-4 h-4 text-purple-400" />
-              ) : (
-                <BrainCircuit className="w-4 h-4 text-cyan-400" />
-              )}
-              <span>Executive TL;DR</span>
+          {/* Section 1: Location (if fetched) */}
+          {location && (
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-between gap-3 shadow-sm">
+              <div className="flex items-center gap-2.5 text-xs text-amber-200">
+                <MapPin className="w-4 h-4 text-amber-400 shrink-0" />
+                <div>
+                  <span className="font-bold uppercase tracking-wider text-[10px] text-amber-400/80 block">
+                    Location Found
+                  </span>
+                  <span className="font-semibold text-amber-100">{location}</span>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsEditingContact(true)}
+                className="text-xs text-amber-300 hover:text-white px-2.5 py-1 rounded-lg glass-button shrink-0"
+              >
+                Edit
+              </button>
             </div>
-            <p className="text-sm sm:text-base text-slate-100 leading-relaxed font-medium">
-              {link.aiSummary.tldr}
-            </p>
-          </div>
+          )}
 
-          {/* Section: Extracted Contacts & On-Screen Details */}
+          {/* Section 2: Key Contact & Phone Numbers */}
           {link.aiSummary.contacts &&
             (phoneNumbers.length > 0 ||
               (link.aiSummary.contacts.emails?.length || 0) > 0 ||
-              link.aiSummary.contacts.addressOrLocation ||
               link.aiSummary.contacts.pricingOrOffers) && (
               <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-teal-950/20 to-slate-900/60 border border-emerald-500/30 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-300">
                     <Phone className="w-4 h-4 text-emerald-400" />
-                    <span>Key Contact & On-Screen Details Found</span>
+                    <span>Key Contact & Phone Numbers (On-Screen or Description)</span>
                   </div>
                   <button
                     onClick={() => setIsEditingContact(true)}
@@ -553,14 +590,6 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
                     </div>
                   ))}
 
-                  {/* Address */}
-                  {link.aiSummary.contacts.addressOrLocation && (
-                    <div className="p-2.5 rounded-xl bg-slate-900/80 border border-emerald-500/20 flex items-center gap-2 text-xs text-slate-200 sm:col-span-2">
-                      <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                      <span>{link.aiSummary.contacts.addressOrLocation}</span>
-                    </div>
-                  )}
-
                   {/* Pricing / Offer */}
                   {link.aiSummary.contacts.pricingOrOffers && (
                     <div className="p-2.5 rounded-xl bg-slate-900/80 border border-emerald-500/20 flex items-center gap-2 text-xs text-amber-300 sm:col-span-2">
@@ -571,6 +600,38 @@ export const LinkDetailModal: React.FC<LinkDetailModalProps> = ({
                 </div>
               </div>
             )}
+
+          {/* Section 3: Key Takeaway with small title (Synthesized from spoken words & description) */}
+          {takeaway && takeaway.content && (
+            <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-950/40 via-indigo-950/20 to-slate-900/60 border border-purple-500/30 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-purple-300">
+                <Sparkles className="w-4 h-4 text-purple-400" />
+                <span>Key Takeaway: {takeaway.title || "Core Insight"}</span>
+              </div>
+              <p className="text-sm text-slate-100 leading-relaxed font-medium">
+                {takeaway.content}
+              </p>
+              <div className="text-[11px] text-purple-300/70 pt-1">
+                Synthesized from spoken dialogue on video & link description
+              </div>
+            </div>
+          )}
+
+          {/* Section 4: Summary */}
+          <div className="p-4 rounded-2xl bg-slate-900/80 border border-white/10 space-y-2.5">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-400">
+              <BookOpen className="w-4 h-4 text-cyan-400" />
+              <span>Summary</span>
+            </div>
+            <p className="text-sm sm:text-base text-slate-100 leading-relaxed font-medium">
+              {link.aiSummary.tldr}
+            </p>
+            {link.aiSummary.detailedSummary && link.aiSummary.detailedSummary !== link.aiSummary.tldr && (
+              <div className="pt-2.5 border-t border-white/5 text-xs text-slate-300 leading-relaxed whitespace-pre-line">
+                {link.aiSummary.detailedSummary}
+              </div>
+            )}
+          </div>
 
           {/* Section: Spoken Dialogue & On-Screen Demonstration */}
           {link.aiSummary.spokenOrOnScreenContent && (

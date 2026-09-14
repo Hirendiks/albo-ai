@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { ScrapedData, AISummary, ContentType, ExtractedContacts } from "@/types";
-import { deduplicatePhoneNumbers } from "./scraper";
+import { ScrapedData, AISummary, ContentType, ExtractedContacts, KeyTakeawayItem } from "@/types";
+import { deduplicatePhoneNumbers, getSourcePlatform } from "./scraper";
 
 export async function analyzeContentWithAI(
   data: ScrapedData,
@@ -91,6 +91,51 @@ export function cleanAndDeduplicateTakeaways(
   return result.slice(0, 5);
 }
 
+/**
+ * Formats a key takeaway item with a small punchy title and content synthesized from spoken words and description.
+ */
+export function formatTakeawayItem(
+  takeawayObj?: { title?: string; content?: string },
+  rawTakeaways?: string[],
+  spokenContent?: string,
+  desc?: string
+): KeyTakeawayItem {
+  if (takeawayObj?.title && takeawayObj?.content) {
+    return {
+      title: takeawayObj.title.trim(),
+      content: takeawayObj.content.trim(),
+    };
+  }
+
+  // If there are takeaways in array
+  if (rawTakeaways && rawTakeaways.length > 0) {
+    const first = rawTakeaways[0];
+    const match = first.match(/^([^:\-–—]{3,35})[:\-–—]\s*(.+)$/);
+    if (match) {
+      return {
+        title: match[1].trim(),
+        content: match[2].trim(),
+      };
+    }
+    return {
+      title: "Core Takeaway",
+      content: first.trim(),
+    };
+  }
+
+  if (spokenContent) {
+    return {
+      title: "Video Insight",
+      content: spokenContent.slice(0, 220).trim(),
+    };
+  }
+
+  return {
+    title: "Core Takeaway",
+    content: (desc || "Key resource and insight.").slice(0, 220).trim(),
+  };
+}
+
 async function resolveImagePart(
   imageUrlOrBase64?: string
 ): Promise<{ inlineData: { data: string; mimeType: string } } | null> {
@@ -165,47 +210,47 @@ ${data.onScreenNotes ? `User-noted on-screen / dialogue details:\n${data.onScree
 Content sample & video description:
 ${data.extractedText.slice(0, 6000)}
 
-CRITICAL MULTIMODAL & ON-SCREEN EXTRACTION INSTRUCTIONS:
-1. "contactInfo":
-   - IF AN IMAGE / SCREENSHOT IS ATTACHED: Carefully inspect every corner, banner, poster frame, text overlay, business board, watermark, and video subtitle.
-   - Look for ALL contact phone numbers (including Indian 10-digit mobile numbers starting with 6/7/8/9, +91, 0, or formatted numbers), WhatsApp numbers/links, emails, shop or office addresses, city/state, pricing or discount offers, and social handles (@...).
-   - Also scan the description, headings, and notes for phone numbers and contacts.
+CRITICAL MULTIMODAL & ON-SCREEN EXTRACTION INSTRUCTIONS (5 CATEGORIES):
+1. "sourcePlatform": Name of the platform (e.g. "Instagram", "YouTube", "X (Twitter)", "Facebook", "TikTok", "LinkedIn", "Reddit", "GitHub", or clean site name).
+2. "phoneNumbers":
+   - IF AN IMAGE / SCREENSHOT IS ATTACHED: Carefully inspect every corner, banner, poster frame, text overlay, business board, watermark, and video subtitle for contact phone numbers.
+   - Look for ALL contact phone numbers (including Indian 10-digit mobile numbers starting with 6/7/8/9, +91, 0, or formatted numbers), WhatsApp numbers/links.
+   - Also scan the description, headings, and notes for phone numbers.
    - Return every detected phone number in contactInfo.phoneNumbers.
-   - Return any WhatsApp link or handle in contactInfo.whatsappOrSocials.
-   - Return shop name/address in contactInfo.addressOrLocation.
-   - Return prices or offers in contactInfo.pricingOrOffers.
-   - DO NOT include phone numbers, addresses, or emails in "keyTakeaways" or "tldr" — keep them strictly inside "contactInfo".
-2. "spokenOrOnScreenContent":
-   - Provide a clear, detailed 1-2 paragraph description of WHAT IS SPOKEN, NARRATED, OR SHOWN ON SCREEN in this video/page/screenshot (e.g. demonstrations, products showcased, key visual moments).
-3. "keyTakeaways":
-   - 3 to 5 distinct, high-value insights, findings, or points covered in this content.
-   - DO NOT repeat the title.
-   - DO NOT include phone numbers, WhatsApp, or contact details in keyTakeaways (they belong exclusively in contactInfo).
-   - Every takeaway must provide genuine new information without repeating other takeaways.
+3. "keyTakeaway":
+   - A single, high-impact key takeaway synthesizing BOTH the spoken words/visual demonstrations on the video AND the link description.
+   - Must have:
+     * "title": A short, punchy small title (2 to 4 words, e.g. "Live Demonstration", "Product Specs & Pricing", "Marble Quality Check", "Core Technique").
+     * "content": 1 to 2 clear, informative sentences detailing the takeaway.
+4. "summary":
+   - A crisp, comprehensive summary (1 to 2 sentences) summarizing what this link/video covers.
+5. "location":
+   - Fetch the shop address, city, state, or location if visible on screen (business boards, banners, text overlays) or in the description/hashtags (e.g. "Makrana, Rajasthan", "Bandra, Mumbai", etc.). Return null if not found.
 
 Return ONLY valid JSON matching this schema:
 {
-  "tldr": "1 to 2 crisp, high-impact sentences summarizing the core value or main thesis. Do not include phone numbers or repeat the title verbatim.",
+  "sourcePlatform": "Instagram",
+  "summary": "1 to 2 crisp sentences summarizing the core content.",
+  "keyTakeaway": {
+    "title": "Short Punchy Title",
+    "content": "Key takeaway synthesized from both spoken words on the video and link description."
+  },
   "keyTakeaways": [
     "Distinct key insight 1",
-    "Distinct key insight 2",
-    "Distinct key insight 3"
+    "Distinct key insight 2"
   ],
-  "detailedSummary": "A comprehensive 2-3 paragraph summary breaking down the context, main concepts, and why this matters.",
-  "actionableInsights": [
-    "Actionable tip or takeaway 1",
-    "Actionable tip or takeaway 2"
-  ],
+  "location": "City, State or Shop Location (if found)",
   "contactInfo": {
     "phoneNumbers": ["+91 98765 43210"],
     "emails": ["contact@example.com"],
     "links": ["https://..."],
     "whatsappOrSocials": ["@handle or wa.me/..."],
-    "addressOrLocation": "Address if mentioned",
+    "addressOrLocation": "Location if mentioned",
     "pricingOrOffers": "Price or promo code if mentioned"
   },
   "spokenOrOnScreenContent": "Detailed breakdown of spoken dialogue, demonstrations, and visual details shown on screen.",
-  "tags": ["tag1", "tag2", "tag3", "tag4"],
+  "detailedSummary": "A comprehensive 2-3 paragraph summary.",
+  "tags": ["tag1", "tag2", "tag3"],
   "contentType": "article | video | repository | tool | paper | social | documentation | other",
   "estimatedReadTime": "X min read (or Video watch)"
 }`;
@@ -221,7 +266,7 @@ Return ONLY valid JSON matching this schema:
     const rawTakeaways: string[] = Array.isArray(parsed.keyTakeaways) ? parsed.keyTakeaways : [];
 
     // Deduplicate and clean takeaways (removes title echoes, contact bullets, duplicate lines)
-    const takeaways = cleanAndDeduplicateTakeaways(rawTakeaways, data.title, parsed.tldr);
+    const takeaways = cleanAndDeduplicateTakeaways(rawTakeaways, data.title, parsed.summary || parsed.tldr);
 
     // Merge and strictly deduplicate contacts
     const aiPhones = Array.isArray(parsed.contactInfo?.phoneNumbers) ? parsed.contactInfo.phoneNumbers : [];
@@ -234,6 +279,20 @@ Return ONLY valid JSON matching this schema:
     );
     const mergedLinks = Array.from(new Set([...aiLinks, ...(data.detectedContacts?.links || [])])).slice(0, 8);
 
+    const sourcePlatform = parsed.sourcePlatform || getSourcePlatform(data.url, data.siteName).name;
+    const location =
+      parsed.location ||
+      parsed.contactInfo?.addressOrLocation ||
+      data.detectedContacts?.addressOrLocation ||
+      undefined;
+
+    const takeaway = formatTakeawayItem(
+      parsed.keyTakeaway,
+      takeaways,
+      parsed.spokenOrOnScreenContent,
+      data.description
+    );
+
     const contacts: ExtractedContacts = {
       phoneNumbers: mergedPhones,
       emails: mergedEmails,
@@ -241,14 +300,17 @@ Return ONLY valid JSON matching this schema:
       whatsappOrSocials: Array.isArray(parsed.contactInfo?.whatsappOrSocials)
         ? parsed.contactInfo.whatsappOrSocials
         : [],
-      addressOrLocation: parsed.contactInfo?.addressOrLocation || undefined,
+      addressOrLocation: location,
       pricingOrOffers: parsed.contactInfo?.pricingOrOffers || undefined,
     };
 
+    const finalSummary = parsed.summary || parsed.tldr || data.description || data.title;
+
     return {
-      tldr: parsed.tldr || data.description || data.title,
-      keyTakeaways: takeaways,
-      detailedSummary: parsed.detailedSummary || data.extractedText.slice(0, 500),
+      tldr: finalSummary,
+      keyTakeaways: takeaways.length > 0 ? takeaways : [`${takeaway.title}: ${takeaway.content}`],
+      takeaway,
+      detailedSummary: parsed.detailedSummary || finalSummary || data.extractedText.slice(0, 500),
       actionableInsights: Array.isArray(parsed.actionableInsights)
         ? parsed.actionableInsights
         : ["Review the full resource via the original link."],
@@ -258,6 +320,8 @@ Return ONLY valid JSON matching this schema:
       isAiGenerated: true,
       contacts,
       spokenOrOnScreenContent: parsed.spokenOrOnScreenContent || (data.onScreenNotes ? `On-screen details: ${data.onScreenNotes}` : undefined),
+      location,
+      sourcePlatform,
     };
   } catch (jsonErr) {
     console.error("Failed to parse Gemini JSON output:", jsonErr, text);
@@ -356,9 +420,19 @@ export function generateHeuristicSummary(data: ScrapedData): AISummary {
     spokenOrOnScreenContent = `Visual walkthrough and demonstration featuring ${data.author || data.siteName || "creator"}.`;
   }
 
+  const sourcePlatform = getSourcePlatform(data.url, data.siteName).name;
+  const location = data.detectedContacts?.addressOrLocation || undefined;
+  const takeaway = formatTakeawayItem(
+    undefined,
+    cleanTakeaways,
+    data.onScreenNotes || data.rawFullDescription,
+    cleanDesc || data.title
+  );
+
   return {
     tldr,
     keyTakeaways: cleanTakeaways.slice(0, 5),
+    takeaway,
     detailedSummary,
     actionableInsights: [
       contentType === "video"
@@ -375,8 +449,11 @@ export function generateHeuristicSummary(data: ScrapedData): AISummary {
       emails: detectedEmails,
       links: detectedLinks,
       whatsappOrSocials: [],
+      addressOrLocation: location,
     },
     spokenOrOnScreenContent,
+    location,
+    sourcePlatform,
   };
 }
 
